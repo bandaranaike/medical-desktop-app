@@ -1,7 +1,22 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
+
+// Disable Autofill in DevTools to avoid noise in console
+app.commandLine.appendSwitch('disable-features', 'AutofillServerCommunication')
+// More specific switch if the above isn't enough
+app.commandLine.appendSwitch('disable-autofill')
+
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { PrismaClient } from '../generated/prisma/client'
+import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
+
+const dbPath = join(app.getPath('userData'), 'dev.db')
+const adapter = new PrismaBetterSqlite3({ url: dbPath })
+const prisma = new PrismaClient({
+  adapter,
+  log: ['query', 'info']
+})
 
 function createWindow(): void {
   // Create the browser window.
@@ -51,6 +66,14 @@ app.whenReady().then(() => {
 
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
+
+  ipcMain.handle('user:create', async (_, data) => {
+    return prisma.user.create({ data })
+  })
+
+  ipcMain.handle('user:list', async () => {
+    return prisma.user.findMany()
+  })
 
   createWindow()
 
