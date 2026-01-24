@@ -8,7 +8,7 @@ app.commandLine.appendSwitch('disable-autofill')
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { PrismaClient } from '../generated/prisma/client'
+import { PrismaClient } from "../generated/prisma/client"
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
 
 const dbPath = join(app.getPath('userData'), 'dev.db')
@@ -73,6 +73,20 @@ app.whenReady().then(() => {
 
   ipcMain.handle('user:list', async () => {
     return prisma.user.findMany()
+  })
+
+  ipcMain.handle('user:search', async (_, query: string) => {
+    return prisma.user.findMany({
+      where: {
+        OR: [
+          { name: { contains: query } },
+          { email: { contains: query } },
+          { telephone: { contains: query } },
+          { registrationNo: { contains: query } }
+        ]
+      },
+      take: 10
+    })
   })
 
   createWindow()

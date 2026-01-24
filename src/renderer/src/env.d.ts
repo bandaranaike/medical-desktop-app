@@ -4,7 +4,8 @@ export {}
 declare global {
   interface Window {
     api: {
-      listUsers(): Promise<{ id: number; name: string; email: string }[]>
+      listUsers(): Promise<Array<{ id: number; [key: string]: unknown }>>
+      searchUsers(query: string): Promise<Array<{ id: number; [key: string]: unknown }>>
     }
   }
 }
