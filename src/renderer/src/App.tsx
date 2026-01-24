@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { Button } from '@/components/ui/button'
 
 interface PatientInfo {
   telephone: string
@@ -288,9 +289,9 @@ function App(): React.JSX.Element {
       {/* Row 3 */}
       <div className="billing-footer">
         <div className="total-amount">Total: {total.toLocaleString()}</div>
-        <button className="print-btn" onClick={() => window.print()}>
+        <Button variant="default" className="px-8" onClick={() => window.print()}>
           Print Bill
-        </button>
+        </Button>
       </div>
     </div>
   )

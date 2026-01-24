@@ -27,6 +27,7 @@
   --color-background: var(--ev-c-black);
   --color-background-soft: var(--ev-c-black-soft);
   --color-background-mute: var(--ev-c-black-mute);
+  --font-mono: 'Roboto Mono', monospace;
 
   --color-text: var(--ev-c-text-1);
 }
@@ -48,20 +49,7 @@ body {
   color: var(--color-text);
   background: var(--color-background);
   line-height: 1.6;
-  font-family: 'Google Sans',
-  'Montserrat',
-  'Hepta Slab',
-  'Segoe UI',
-  Inter, Roboto,
-  -apple-system,
-  BlinkMacSystemFont,
-  Oxygen,
-  Ubuntu,
-  Cantarell,
-  'Fira Sans',
-  'Droid Sans',
-  'Helvetica Neue',
-  sans-serif;
+  font-family: 'Google Sans', sans-serif;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
