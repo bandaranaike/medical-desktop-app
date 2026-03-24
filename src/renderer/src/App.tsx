@@ -84,11 +84,11 @@ const doctors: DoctorOption[] = [
 ]
 
 const inputClassName =
-  'h-9 rounded-md border-border bg-white/[0.03] text-sm text-white shadow-none placeholder:text-slate-500 focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/20 transition-all'
+  'h-9 rounded-md border-border/90 bg-white/[0.035] text-sm text-white placeholder:text-slate-500 focus-visible:border-primary/70 focus-visible:ring-primary/20'
 const selectClassName =
-  'flex h-9 w-full rounded-md border border-border bg-white/[0.03] px-3 text-sm text-white outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/20'
+  'flex h-9 w-full rounded-md border border-border/90 bg-white/[0.035] px-3 text-sm text-white outline-none transition focus:border-primary/70 focus:ring-2 focus:ring-primary/20'
 const softButtonClassName =
-  'border-border bg-white/[0.04] text-slate-200 hover:border-primary/30 hover:bg-primary/10 hover:text-white transition-all text-xs h-8'
+  'h-8 border-border/90 bg-white/[0.04] text-xs text-slate-200 transition-all hover:border-primary/35 hover:bg-primary/10 hover:text-white'
 
 const makeRow = (label = '', amount = ''): ChargeRow => ({
   id: Math.random().toString(36).slice(2, 10),
@@ -115,7 +115,7 @@ function splitDental(amount: number, doctor?: DoctorOption): { inHouse: number; 
 
 function Label({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
-    <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+    <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
       {children}
     </label>
   )
@@ -156,14 +156,14 @@ function SearchBox({
         className={inputClassName}
       />
       {activeField === field && results.length > 0 ? (
-        <div className="absolute inset-x-0 top-full z-20 mt-1 rounded-md border border-border bg-card p-1 shadow-2xl">
+        <div className="absolute inset-x-0 top-full z-20 mt-1 rounded-md border border-border/90 bg-[rgba(13,19,29,0.98)] p-1 shadow-2xl">
           {results.map((user) => (
             <button
               key={user.id}
               type="button"
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => onSelect(user)}
-              className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left transition hover:bg-white/5"
+              className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left transition hover:bg-white/4"
             >
               <span>
                 <span className="block text-xs font-medium text-white">
@@ -289,12 +289,13 @@ function App(): React.JSX.Element {
   const total = summary.reduce((sum, item) => sum + item.value, 0)
 
   return (
-    <main className="min-h-screen p-4 text-white sm:p-6">
-      <div className="mx-auto flex max-w-6xl flex-col gap-8">
-        <section className="relative overflow-hidden rounded-xl border border-border bg-card/50 p-4 shadow-xl">
+    <main className="min-h-screen p-4 text-white sm:p-5">
+      <div className="mx-auto flex max-w-6xl flex-col gap-4">
+        <section className="relative overflow-hidden rounded-xl border border-border/90 bg-[linear-gradient(180deg,rgba(12,19,30,0.98),rgba(16,25,39,0.94))] p-4 shadow-[0_24px_50px_rgba(3,9,18,0.3)]">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.12),transparent_32%)]" />
           <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-1">
-              <span className="inline-flex rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
+              <span className="inline-flex rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
                 Medical Center Billing
               </span>
               <div>
@@ -307,7 +308,7 @@ function App(): React.JSX.Element {
               </div>
             </div>
             <div className="flex flex-wrap gap-3">
-              <div className="min-w-[140px] rounded-lg border border-border bg-white/[0.02] px-3 py-1.5">
+              <div className="min-w-35 rounded-lg border border-border/90 bg-[#16202c] px-3 py-1.5">
                 <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
                   Date
                 </p>
@@ -321,11 +322,11 @@ function App(): React.JSX.Element {
                   )}
                 />
               </div>
-              <div className="min-w-[180px] rounded-lg border border-border bg-white/[0.02] px-3 py-1.5">
+              <div className="min-w-45 rounded-lg border border-border/90 bg-[#16202c] px-3 py-1.5">
                 <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
                   Shift
                 </p>
-                <div className="mt-1 flex rounded-md border border-border bg-black/20 p-0.5">
+                <div className="mt-1 flex rounded-md border border-border/90 bg-[#0f161f] p-0.5">
                   {(['Morning', 'Evening'] as Shift[]).map((option) => (
                     <button
                       key={option}
@@ -334,8 +335,8 @@ function App(): React.JSX.Element {
                       className={cn(
                         'flex-1 rounded px-3 py-1 text-[11px] font-medium transition',
                         shift === option
-                          ? 'bg-primary text-primary-foreground shadow-sm'
-                          : 'text-slate-400 hover:bg-white/5'
+                          ? 'bg-primary text-primary-foreground shadow-[0_10px_22px_rgba(34,211,238,0.24)]'
+                          : 'text-slate-400 hover:bg-white/4'
                       )}
                     >
                       {option}
@@ -347,8 +348,8 @@ function App(): React.JSX.Element {
           </div>
         </section>
 
-        <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="space-y-8">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="space-y-4">
             <SurfaceCard eyebrow="Patient" title="Patient information">
               <div className="grid gap-x-4 gap-y-4 md:grid-cols-2 xl:grid-cols-3">
                 <SearchBox
@@ -445,10 +446,10 @@ function App(): React.JSX.Element {
             </SurfaceCard>
 
             <SurfaceCard eyebrow="Visit Type" title="Billing operation">
-              <div className="space-y-5">
+              <div className="space-y-4">
                 <OperationTabs value={activeOperation} onChange={setActiveOperation} />
                 {activeOperation === 'opd' ? (
-                  <div className="grid gap-x-4 gap-y-4 lg:grid-cols-2">
+                  <div className="grid gap-x-4 gap-y-3 lg:grid-cols-2">
                     <div className="lg:col-span-2">
                       <Label>Doctor</Label>
                       <select
@@ -492,7 +493,7 @@ function App(): React.JSX.Element {
                   </div>
                 ) : null}
                 {activeOperation === 'channeling' ? (
-                  <div className="grid gap-x-4 gap-y-4 lg:grid-cols-2">
+                  <div className="grid gap-x-4 gap-y-3 lg:grid-cols-2">
                     <div className="lg:col-span-2">
                       <Label>Doctor</Label>
                       <select
@@ -542,8 +543,8 @@ function App(): React.JSX.Element {
                   </div>
                 ) : null}
                 {activeOperation === 'dental' ? (
-                  <div className="space-y-5">
-                    <div className="grid gap-x-4 gap-y-4 lg:grid-cols-[1fr_180px]">
+                  <div className="space-y-4">
+                    <div className="grid gap-x-4 gap-y-3 lg:grid-cols-[1fr_180px]">
                       <div>
                         <Label>Doctor</Label>
                         <select
@@ -576,7 +577,7 @@ function App(): React.JSX.Element {
                         />
                       </div>
                     </div>
-                    <div className="space-y-3">
+                    <div className="space-y-2.5">
                       {dental.rows.map((row) => {
                         const split = splitDental(
                           num(row.amount),
@@ -585,7 +586,7 @@ function App(): React.JSX.Element {
                         return (
                           <div
                             key={row.id}
-                            className="grid gap-3 rounded-lg border border-border bg-white/[0.02] p-3 lg:grid-cols-[1fr_120px_160px_80px]"
+                            className="grid gap-3 rounded-lg border border-border/90 bg-white/2 p-3 lg:grid-cols-[1fr_120px_160px_80px]"
                           >
                             <div>
                               <Label>Label</Label>
@@ -624,7 +625,7 @@ function App(): React.JSX.Element {
                                 className={inputClassName}
                               />
                             </div>
-                            <div className="grid grid-cols-2 gap-1.5 rounded-md border border-border bg-black/20 p-2">
+                            <div className="grid grid-cols-2 gap-1.5 rounded-md border border-border/90 bg-[#111923] p-2">
                               <div className="space-y-0.5">
                                 <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
                                   In-house
@@ -678,11 +679,11 @@ function App(): React.JSX.Element {
                   </div>
                 ) : null}
                 {activeOperation === 'others' ? (
-                  <div className="space-y-3">
+                  <div className="space-y-2.5">
                     {others.map((row) => (
                       <div
                         key={row.id}
-                        className="grid gap-3 rounded-lg border border-border bg-white/[0.02] p-3 lg:grid-cols-[1fr_120px_80px]"
+                        className="grid gap-3 rounded-lg border border-border/90 bg-white/2 p-3 lg:grid-cols-[1fr_120px_80px]"
                       >
                         <div>
                           <Label>Label</Label>
@@ -748,10 +749,10 @@ function App(): React.JSX.Element {
             </SurfaceCard>
           </div>
 
-          <aside className="space-y-8">
-            <SurfaceCard eyebrow="Summary" title="Current bill">
-              <div className="space-y-4">
-                <div className="grid gap-2 rounded-lg border border-border bg-black/10 p-3">
+          <aside className="space-y-4">
+            <SurfaceCard eyebrow="Summary" title="Current bill" className="p-3">
+              <div className="space-y-3">
+                <div className="grid gap-2 rounded-lg border border-border/90 bg-[#111923] p-3">
                   <div className="flex items-center justify-between text-[13px]">
                     <span className="text-slate-400 font-medium">Patient</span>
                     <span className="text-slate-100">{patient.name || 'Walk-in'}</span>
@@ -765,7 +766,7 @@ function App(): React.JSX.Element {
                     <span className="text-slate-100">{billDate}</span>
                   </div>
                 </div>
-                <div className="space-y-2 rounded-lg border border-border bg-white/[0.02] p-3">
+                <div className="space-y-2 rounded-lg border border-border/90 bg-white/2 p-3">
                   {summary.map((item) => (
                     <div key={item.label} className="flex items-center justify-between text-[13px]">
                       <span className="text-slate-400 font-medium">{item.label}</span>
@@ -775,7 +776,7 @@ function App(): React.JSX.Element {
                 </div>
                 {activeOperation === 'dental' ? (
                   <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded-lg border border-border bg-white/[0.02] p-2.5">
+                    <div className="rounded-lg border border-border/90 bg-white/2 p-2.5">
                       <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
                         In-house
                       </p>
@@ -783,7 +784,7 @@ function App(): React.JSX.Element {
                         {money(dentalSplit.inHouse)}
                       </p>
                     </div>
-                    <div className="rounded-lg border border-border bg-white/[0.02] p-2.5">
+                    <div className="rounded-lg border border-border/90 bg-white/2 p-2.5">
                       <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
                         Referred
                       </p>
@@ -793,7 +794,7 @@ function App(): React.JSX.Element {
                     </div>
                   </div>
                 ) : null}
-                <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-center">
+                <div className="rounded-lg border border-primary/20 bg-[linear-gradient(180deg,rgba(24,56,74,0.92),rgba(19,46,61,0.96))] p-4 text-center">
                   <p className="text-[10px] uppercase tracking-widest text-primary font-bold">
                     Grand Total
                   </p>
@@ -801,20 +802,13 @@ function App(): React.JSX.Element {
                     {money(total)}
                   </p>
                 </div>
-                <div className="grid gap-2 pt-2">
+                <div className="grid gap-2">
                   <Button
                     type="button"
                     onClick={() => window.print()}
-                    className="h-10 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-md hover:bg-primary/90"
+                    className="h-10 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-[0_14px_28px_rgba(34,211,238,0.22)] hover:bg-primary/90"
                   >
                     Generate And Print Bill
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={cn(softButtonClassName, 'h-10 w-full')}
-                  >
-                    Save Draft Layout
                   </Button>
                 </div>
               </div>
