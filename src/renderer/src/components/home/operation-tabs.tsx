@@ -19,17 +19,17 @@ export function OperationTabs({
   onChange
 }: OperationTabsProps): React.JSX.Element {
   return (
-    <div className="inline-flex rounded-xl border border-white/10 bg-white/5 p-1">
+    <div className="inline-flex rounded-lg border border-border bg-white/5 p-0.5">
       {tabs.map((tab) => (
         <button
           key={tab.value}
           type="button"
           onClick={() => onChange(tab.value)}
           className={cn(
-            'rounded-lg px-4 py-2 text-sm font-medium transition-all',
+            'rounded-md px-3 py-1 text-[11px] font-semibold transition-all',
             value === tab.value
-              ? 'bg-cyan-400 text-slate-950 shadow-[0_10px_28px_rgba(34,211,238,0.35)]'
-              : 'text-slate-300 hover:bg-white/6 hover:text-white'
+              ? 'bg-primary text-primary-foreground shadow-sm'
+              : 'text-slate-400 hover:bg-white/5 hover:text-white'
           )}
         >
           {tab.label}

@@ -11,22 +11,22 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps): React.J
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-card w-full max-w-2xl rounded-lg border shadow-lg overflow-hidden">
-        <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-xl font-semibold">{title}</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-card w-full max-w-lg rounded-xl border shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <h2 className="text-base font-semibold">{title}</h2>
           <button
             onClick={onClose}
-            className="p-1 hover:bg-muted rounded-full transition-colors"
+            className="p-1 hover:bg-white/5 rounded-md transition-colors text-slate-400 hover:text-white"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              width="24"
-              height="24"
+              width="18"
+              height="18"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2"
+              strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"
             >
@@ -35,7 +35,7 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps): React.J
             </svg>
           </button>
         </div>
-        <div className="p-6 overflow-y-auto max-h-[80vh]">
+        <div className="p-4 overflow-y-auto max-h-[85vh]">
           {children}
         </div>
       </div>

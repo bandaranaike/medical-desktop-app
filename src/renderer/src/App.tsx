@@ -84,11 +84,11 @@ const doctors: DoctorOption[] = [
 ]
 
 const inputClassName =
-  'h-11 rounded-lg border-white/10 bg-white/3 text-[15px] text-white shadow-none placeholder:text-slate-500 focus-visible:border-cyan-300/60 focus-visible:ring-2 focus-visible:ring-cyan-300/30'
+  'h-9 rounded-md border-border bg-white/[0.03] text-sm text-white shadow-none placeholder:text-slate-500 focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/20 transition-all'
 const selectClassName =
-  'flex h-11 w-full rounded-lg border border-white/10 bg-white/3 px-3 text-[15px] text-white outline-none transition focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/30'
+  'flex h-9 w-full rounded-md border border-border bg-white/[0.03] px-3 text-sm text-white outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/20'
 const softButtonClassName =
-  'border-white/10 bg-white/[0.04] text-slate-100 hover:border-cyan-300/30 hover:bg-cyan-300/10 hover:text-white'
+  'border-border bg-white/[0.04] text-slate-200 hover:border-primary/30 hover:bg-primary/10 hover:text-white transition-all text-xs h-8'
 
 const makeRow = (label = '', amount = ''): ChargeRow => ({
   id: Math.random().toString(36).slice(2, 10),
@@ -115,7 +115,7 @@ function splitDental(amount: number, doctor?: DoctorOption): { inHouse: number; 
 
 function Label({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
-    <label className="mb-2 block text-xs font-medium uppercase tracking-[0.2em] text-slate-400">
+    <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">
       {children}
     </label>
   )
@@ -156,24 +156,24 @@ function SearchBox({
         className={inputClassName}
       />
       {activeField === field && results.length > 0 ? (
-        <div className="absolute inset-x-0 top-full z-20 mt-2 rounded-lg border border-white/10 bg-[#11161e] p-2 shadow-2xl">
+        <div className="absolute inset-x-0 top-full z-20 mt-1 rounded-md border border-border bg-card p-1 shadow-2xl">
           {results.map((user) => (
             <button
               key={user.id}
               type="button"
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => onSelect(user)}
-              className="flex w-full items-center justify-between rounded-md px-3 py-3 text-left transition hover:bg-white/6"
+              className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left transition hover:bg-white/5"
             >
               <span>
-                <span className="block text-sm font-medium text-white">
+                <span className="block text-xs font-medium text-white">
                   {user.name || 'Unnamed Patient'}
                 </span>
-                <span className="block text-xs text-slate-400">
+                <span className="block text-[10px] text-slate-500">
                   {user.telephone || user.registrationNo || user.email || 'No details'}
                 </span>
               </span>
-              <span className="text-xs text-cyan-300">Autofill</span>
+              <span className="text-[10px] text-primary">Autofill</span>
             </button>
           ))}
         </div>
@@ -252,15 +252,6 @@ function App(): React.JSX.Element {
     setActiveField(null)
   }
 
-  const doctor =
-    activeOperation === 'opd'
-      ? doctors.find((item) => item.id === opd.doctorId)
-      : activeOperation === 'channeling'
-        ? doctors.find((item) => item.id === channeling.doctorId)
-        : activeOperation === 'dental'
-          ? doctors.find((item) => item.id === dental.doctorId)
-          : undefined
-
   const dentalSplit = dental.rows.reduce(
     (total, row) => {
       const split = splitDental(
@@ -298,48 +289,53 @@ function App(): React.JSX.Element {
   const total = summary.reduce((sum, item) => sum + item.value, 0)
 
   return (
-    <main className="min-h-screen px-4 py-6 text-white sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-365 flex-col gap-8">
-        <section className="relative overflow-hidden rounded-[20px] border border-white/10 bg-[#0d1218]/95 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.5)]">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.14),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(59,130,246,0.12),transparent_30%)]" />
-          <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="space-y-3">
-              <span className="inline-flex rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-200">
+    <main className="min-h-screen p-4 text-white sm:p-6">
+      <div className="mx-auto flex max-w-6xl flex-col gap-8">
+        <section className="relative overflow-hidden rounded-xl border border-border bg-card/50 p-4 shadow-xl">
+          <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-1">
+              <span className="inline-flex rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
                 Medical Center Billing
               </span>
               <div>
-                <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+                <h1 className="text-xl font-semibold tracking-tight">
                   Simple billing flow for clinic operators
                 </h1>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400 sm:text-base">
-                  Search patient details, select the visit type, enter charges, and generate a
-                  print-ready bill from one screen.
+                <p className="text-xs text-slate-400">
+                  Search patient details, select visit type, enter charges, and generate bill.
                 </p>
               </div>
             </div>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="rounded-[14px] border border-white/10 bg-white/3 px-4 py-3">
-                <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Date</p>
+            <div className="flex flex-wrap gap-3">
+              <div className="min-w-[140px] rounded-lg border border-border bg-white/[0.02] px-3 py-1.5">
+                <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                  Date
+                </p>
                 <Input
                   type="date"
                   value={billDate}
                   onChange={(event) => setBillDate(event.target.value)}
-                  className={cn(inputClassName, 'mt-2 border-0 bg-transparent px-0 py-0')}
+                  className={cn(
+                    inputClassName,
+                    'h-7 border-0 bg-transparent px-0 py-0 focus-visible:ring-0'
+                  )}
                 />
               </div>
-              <div className="rounded-[14px] border border-white/10 bg-white/3 px-4 py-3 sm:col-span-2">
-                <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Shift</p>
-                <div className="mt-3 flex rounded-lg border border-white/10 bg-[#0c1117] p-1">
+              <div className="min-w-[180px] rounded-lg border border-border bg-white/[0.02] px-3 py-1.5">
+                <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                  Shift
+                </p>
+                <div className="mt-1 flex rounded-md border border-border bg-black/20 p-0.5">
                   {(['Morning', 'Evening'] as Shift[]).map((option) => (
                     <button
                       key={option}
                       type="button"
                       onClick={() => setShift(option)}
                       className={cn(
-                        'flex-1 rounded-md px-4 py-2 text-sm font-medium transition',
+                        'flex-1 rounded px-3 py-1 text-[11px] font-medium transition',
                         shift === option
-                          ? 'bg-cyan-400 text-slate-950 shadow-[0_10px_24px_rgba(34,211,238,0.28)]'
-                          : 'text-slate-300 hover:bg-white/6'
+                          ? 'bg-primary text-primary-foreground shadow-sm'
+                          : 'text-slate-400 hover:bg-white/5'
                       )}
                     >
                       {option}
@@ -351,14 +347,10 @@ function App(): React.JSX.Element {
           </div>
         </section>
 
-        <div className="grid gap-8 xl:grid-cols-[minmax(0,1.95fr)_360px]">
-          <div>
-            <SurfaceCard
-              eyebrow="Patient"
-              title="Patient information"
-              description="Name and telephone search existing records and autofill the available fields."
-            >
-              <div className="grid gap-x-5 gap-y-8 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="space-y-8">
+            <SurfaceCard eyebrow="Patient" title="Patient information">
+              <div className="grid gap-x-4 gap-y-4 md:grid-cols-2 xl:grid-cols-3">
                 <SearchBox
                   label="Name"
                   field="name"
@@ -440,7 +432,7 @@ function App(): React.JSX.Element {
                     </option>
                   </select>
                 </div>
-                <div className="md:col-span-2 xl:col-span-1">
+                <div className="md:col-span-2 xl:col-span-3">
                   <Label>Address</Label>
                   <Input
                     value={patient.address}
@@ -451,17 +443,13 @@ function App(): React.JSX.Element {
                 </div>
               </div>
             </SurfaceCard>
-            <div className="h-8" />
-            <SurfaceCard
-              eyebrow="Visit Type"
-              title="Billing operation"
-              description="Switch between operation types without losing the values already entered."
-            >
-              <div className="space-y-8">
+
+            <SurfaceCard eyebrow="Visit Type" title="Billing operation">
+              <div className="space-y-5">
                 <OperationTabs value={activeOperation} onChange={setActiveOperation} />
                 {activeOperation === 'opd' ? (
-                  <div className="grid gap-x-5 gap-y-8 lg:grid-cols-2">
-                    <div className="mb-1 lg:col-span-2">
+                  <div className="grid gap-x-4 gap-y-4 lg:grid-cols-2">
+                    <div className="lg:col-span-2">
                       <Label>Doctor</Label>
                       <select
                         value={opd.doctorId}
@@ -504,8 +492,8 @@ function App(): React.JSX.Element {
                   </div>
                 ) : null}
                 {activeOperation === 'channeling' ? (
-                  <div className="grid gap-x-5 gap-y-8 lg:grid-cols-2">
-                    <div className="mb-1 lg:col-span-2">
+                  <div className="grid gap-x-4 gap-y-4 lg:grid-cols-2">
+                    <div className="lg:col-span-2">
                       <Label>Doctor</Label>
                       <select
                         value={channeling.doctorId}
@@ -554,9 +542,9 @@ function App(): React.JSX.Element {
                   </div>
                 ) : null}
                 {activeOperation === 'dental' ? (
-                  <div className="space-y-8">
-                    <div className="grid gap-x-5 gap-y-8 lg:grid-cols-[minmax(0,1.2fr)_220px]">
-                      <div className="mb-1">
+                  <div className="space-y-5">
+                    <div className="grid gap-x-4 gap-y-4 lg:grid-cols-[1fr_180px]">
+                      <div>
                         <Label>Doctor</Label>
                         <select
                           value={dental.doctorId}
@@ -588,7 +576,7 @@ function App(): React.JSX.Element {
                         />
                       </div>
                     </div>
-                    <div className="space-y-6">
+                    <div className="space-y-3">
                       {dental.rows.map((row) => {
                         const split = splitDental(
                           num(row.amount),
@@ -597,10 +585,10 @@ function App(): React.JSX.Element {
                         return (
                           <div
                             key={row.id}
-                            className="grid gap-3 rounded-[14px] border border-white/10 bg-white/3 p-4 lg:grid-cols-[minmax(0,1.1fr)_220px_240px_auto] space-y-3 m-20"
+                            className="grid gap-3 rounded-lg border border-border bg-white/[0.02] p-3 lg:grid-cols-[1fr_120px_160px_80px]"
                           >
                             <div>
-                              <Label>Charge Label</Label>
+                              <Label>Label</Label>
                               <Input
                                 value={row.label}
                                 onChange={(event) =>
@@ -613,7 +601,7 @@ function App(): React.JSX.Element {
                                     )
                                   }))
                                 }
-                                placeholder="Dental treatment name"
+                                placeholder="Treatment name"
                                 className={inputClassName}
                               />
                             </div>
@@ -636,32 +624,22 @@ function App(): React.JSX.Element {
                                 className={inputClassName}
                               />
                             </div>
-                            <div className="grid gap-2 rounded-xl border border-white/10 bg-[#0d1218] p-3">
-                              <div className="flex items-center justify-between text-xs uppercase tracking-[0.18em] text-slate-500">
-                                <span>Split</span>
-                                <span>
-                                  {doctor?.dentalSplitMode === 'fixed'
-                                    ? `Fixed ${money(doctor.dentalSplitValue)}`
-                                    : `${doctor?.dentalSplitValue ?? 0}% In-house`}
-                                </span>
+                            <div className="grid grid-cols-2 gap-1.5 rounded-md border border-border bg-black/20 p-2">
+                              <div className="space-y-0.5">
+                                <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
+                                  In-house
+                                </p>
+                                <p className="text-[11px] font-semibold text-primary">
+                                  {money(split.inHouse)}
+                                </p>
                               </div>
-                              <div className="grid grid-cols-2 gap-2">
-                                <div className="rounded-[10px] border border-white/8 bg-white/3 p-3">
-                                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
-                                    In-house
-                                  </p>
-                                  <p className="mt-2 text-sm font-semibold text-cyan-200">
-                                    {money(split.inHouse)}
-                                  </p>
-                                </div>
-                                <div className="rounded-[10px] border border-white/8 bg-white/3 p-3">
-                                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
-                                    Referred
-                                  </p>
-                                  <p className="mt-2 text-sm font-semibold text-slate-100">
-                                    {money(split.referred)}
-                                  </p>
-                                </div>
+                              <div className="space-y-0.5">
+                                <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
+                                  Referred
+                                </p>
+                                <p className="text-[11px] font-semibold text-slate-100">
+                                  {money(split.referred)}
+                                </p>
                               </div>
                             </div>
                             <div className="flex items-end">
@@ -675,7 +653,7 @@ function App(): React.JSX.Element {
                                   }))
                                 }
                                 disabled={dental.rows.length === 1}
-                                className={cn(softButtonClassName, 'w-full rounded-lg')}
+                                className={cn(softButtonClassName, 'w-full')}
                               >
                                 Remove
                               </Button>
@@ -684,7 +662,6 @@ function App(): React.JSX.Element {
                         )
                       })}
                     </div>
-                    <div className="p-2"></div>
                     <Button
                       type="button"
                       variant="outline"
@@ -694,71 +671,66 @@ function App(): React.JSX.Element {
                           rows: [...current.rows, makeRow('New Dental Charge', '')]
                         }))
                       }
-                      className={cn(softButtonClassName, 'rounded-lg')}
+                      className={softButtonClassName}
                     >
                       Add Dental Charge
                     </Button>
                   </div>
                 ) : null}
                 {activeOperation === 'others' ? (
-                  <div className="space-y-6">
+                  <div className="space-y-3">
                     {others.map((row) => (
-                      <>
-                        <div
-                          key={row.id}
-                          className="grid gap-3 rounded-[14px] border border-white/10 bg-white/3 p-4 lg:grid-cols-[minmax(0,1fr)_220px_auto]"
-                        >
-                          <div>
-                            <Label>Label</Label>
-                            <Input
-                              value={row.label}
-                              onChange={(event) =>
-                                setOthers((current) =>
-                                  current.map((item) =>
-                                    item.id === row.id
-                                      ? { ...item, label: event.target.value }
-                                      : item
-                                  )
+                      <div
+                        key={row.id}
+                        className="grid gap-3 rounded-lg border border-border bg-white/[0.02] p-3 lg:grid-cols-[1fr_120px_80px]"
+                      >
+                        <div>
+                          <Label>Label</Label>
+                          <Input
+                            value={row.label}
+                            onChange={(event) =>
+                              setOthers((current) =>
+                                current.map((item) =>
+                                  item.id === row.id ? { ...item, label: event.target.value } : item
                                 )
-                              }
-                              placeholder="Report or treatment name"
-                              className={inputClassName}
-                            />
-                          </div>
-                          <div>
-                            <Label>Charge</Label>
-                            <Input
-                              type="number"
-                              value={row.amount}
-                              onChange={(event) =>
-                                setOthers((current) =>
-                                  current.map((item) =>
-                                    item.id === row.id
-                                      ? { ...item, amount: event.target.value }
-                                      : item
-                                  )
-                                )
-                              }
-                              placeholder="0"
-                              className={inputClassName}
-                            />
-                          </div>
-                          <div className="flex items-end">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              onClick={() =>
-                                setOthers((current) => current.filter((item) => item.id !== row.id))
-                              }
-                              disabled={others.length === 1}
-                              className={cn(softButtonClassName, 'w-full rounded-lg')}
-                            >
-                              Remove
-                            </Button>
-                          </div>
+                              )
+                            }
+                            placeholder="Report or treatment name"
+                            className={inputClassName}
+                          />
                         </div>
-                        <div className="h-2" />
-                      </>
+                        <div>
+                          <Label>Charge</Label>
+                          <Input
+                            type="number"
+                            value={row.amount}
+                            onChange={(event) =>
+                              setOthers((current) =>
+                                current.map((item) =>
+                                  item.id === row.id
+                                    ? { ...item, amount: event.target.value }
+                                    : item
+                                )
+                              )
+                            }
+                            placeholder="0"
+                            className={inputClassName}
+                          />
+                        </div>
+                        <div className="flex items-end">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() =>
+                              setOthers((current) => current.filter((item) => item.id !== row.id))
+                            }
+                            disabled={others.length === 1}
+                            className={cn(softButtonClassName, 'w-full')}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      </div>
                     ))}
                     <Button
                       type="button"
@@ -766,7 +738,7 @@ function App(): React.JSX.Element {
                       onClick={() =>
                         setOthers((current) => [...current, makeRow('Additional Charge', '')])
                       }
-                      className={cn(softButtonClassName, 'rounded-lg')}
+                      className={softButtonClassName}
                     >
                       Add Charge Row
                     </Button>
@@ -776,88 +748,78 @@ function App(): React.JSX.Element {
             </SurfaceCard>
           </div>
 
-          <div>
-            <SurfaceCard
-              eyebrow="Summary"
-              title="Current bill"
-              description="Review the values before generating the print view."
-            >
-              <div>
-                <div className="grid gap-5 rounded-[14px] border border-white/10 bg-[#0d1218] p-4">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-400">Patient</span>
-                    <span className="font-medium text-slate-100">
-                      {patient.name || 'Walk-in patient'}
-                    </span>
+          <aside className="space-y-8">
+            <SurfaceCard eyebrow="Summary" title="Current bill">
+              <div className="space-y-4">
+                <div className="grid gap-2 rounded-lg border border-border bg-black/10 p-3">
+                  <div className="flex items-center justify-between text-[13px]">
+                    <span className="text-slate-400 font-medium">Patient</span>
+                    <span className="text-slate-100">{patient.name || 'Walk-in'}</span>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-400">Shift</span>
-                    <span className="font-medium text-slate-100">{shift}</span>
+                  <div className="flex items-center justify-between text-[13px]">
+                    <span className="text-slate-400 font-medium">Shift</span>
+                    <span className="text-slate-100">{shift}</span>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-400">Date</span>
-                    <span className="font-medium text-slate-100">{billDate}</span>
+                  <div className="flex items-center justify-between text-[13px]">
+                    <span className="text-slate-400 font-medium">Date</span>
+                    <span className="text-slate-100">{billDate}</span>
                   </div>
                 </div>
-                <div className="h-5" />
-                <div className="space-y-4 rounded-[14px] border border-white/10 bg-white/3 p-4">
+                <div className="space-y-2 rounded-lg border border-border bg-white/[0.02] p-3">
                   {summary.map((item) => (
-                    <div key={item.label} className="flex items-center justify-between text-sm">
-                      <span className="text-slate-400">{item.label}</span>
-                      <span className="font-medium text-slate-100">{money(item.value)}</span>
+                    <div key={item.label} className="flex items-center justify-between text-[13px]">
+                      <span className="text-slate-400 font-medium">{item.label}</span>
+                      <span className="text-slate-100">{money(item.value)}</span>
                     </div>
                   ))}
                 </div>
                 {activeOperation === 'dental' ? (
-                  <>
-                    <div className="h-5" />
-                    <div className="grid gap-5 sm:grid-cols-2">
-                      <div className="rounded-xl border border-white/10 bg-white/3 p-4">
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                          In-house total
-                        </p>
-                        <p className="mt-2 text-lg font-semibold text-cyan-200">
-                          {money(dentalSplit.inHouse)}
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-white/10 bg-white/3 p-4">
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                          Referred total
-                        </p>
-                        <p className="mt-2 text-lg font-semibold text-slate-100">
-                          {money(dentalSplit.referred)}
-                        </p>
-                      </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-lg border border-border bg-white/[0.02] p-2.5">
+                      <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
+                        In-house
+                      </p>
+                      <p className="text-sm font-semibold text-primary">
+                        {money(dentalSplit.inHouse)}
+                      </p>
                     </div>
-                  </>
+                    <div className="rounded-lg border border-border bg-white/[0.02] p-2.5">
+                      <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
+                        Referred
+                      </p>
+                      <p className="text-sm font-semibold text-slate-100">
+                        {money(dentalSplit.referred)}
+                      </p>
+                    </div>
+                  </div>
                 ) : null}
-                <div className="h-5" />
-                <div className="rounded-2xl border border-cyan-300/20 bg-[linear-gradient(135deg,rgba(34,211,238,0.18),rgba(37,99,235,0.08))] p-5">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-cyan-100/80">
+                <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-center">
+                  <p className="text-[10px] uppercase tracking-widest text-primary font-bold">
                     Grand Total
                   </p>
-                  <p className="mt-3 text-3xl font-semibold tracking-tight">{money(total)}</p>
+                  <p className="mt-1 text-2xl font-bold tracking-tight text-white">
+                    {money(total)}
+                  </p>
                 </div>
-                <div className="h-5" />
-                <div className="grid gap-5">
+                <div className="grid gap-2 pt-2">
                   <Button
                     type="button"
                     onClick={() => window.print()}
-                    className="h-12 rounded-lg bg-cyan-400 text-sm font-semibold text-slate-950 shadow-[0_14px_40px_rgba(34,211,238,0.28)] hover:bg-cyan-300"
+                    className="h-10 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-md hover:bg-primary/90"
                   >
                     Generate And Print Bill
                   </Button>
                   <Button
                     type="button"
                     variant="outline"
-                    className={cn(softButtonClassName, 'h-11 rounded-lg')}
+                    className={cn(softButtonClassName, 'h-10 w-full')}
                   >
                     Save Draft Layout
                   </Button>
                 </div>
               </div>
             </SurfaceCard>
-          </div>
+          </aside>
         </div>
       </div>
     </main>

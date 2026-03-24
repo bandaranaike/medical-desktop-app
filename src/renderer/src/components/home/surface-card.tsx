@@ -20,19 +20,19 @@ export function SurfaceCard({
   return (
     <section
       className={cn(
-        'rounded-[18px] border border-white/10 bg-[#11161e]/90 px-5 py-6 shadow-[0_20px_60px_rgba(0,0,0,0.42)] backdrop-blur-xl',
+        'rounded-lg border border-border bg-card/20 p-4 shadow-sm backdrop-blur-md mb-8!',
         className
       )}
     >
-      <div className="mb-12 flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
+      <div className="mb-24 flex flex-wrap items-start justify-between gap-1">
+        <div className="space-y-0.5 mb-8">
           {eyebrow ? (
-            <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-cyan-300/80">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-primary">
               {eyebrow}
             </p>
           ) : null}
-          <h2 className="text-lg font-semibold tracking-tight text-white">{title}</h2>
-          {description ? <p className="text-sm text-slate-400">{description}</p> : null}
+          <h2 className="text-sm font-semibold tracking-tight text-white mb-8">{title}</h2>
+          {description ? <p className="text-[11px] text-slate-500">{description}</p> : null}
         </div>
       </div>
       {children}

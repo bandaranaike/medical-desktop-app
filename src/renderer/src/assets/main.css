@@ -34,15 +34,26 @@
 
 @layer base {
   :root {
-    --background: 218 34% 8%;
+    --background: 240 10% 2%;
     --foreground: 210 40% 98%;
-    --primary: 189 95% 58%;
-    --primary-foreground: 222 47% 11%;
-    --muted: 217 22% 16%;
-    --muted-foreground: 215 16% 65%;
-    --border: 218 22% 21%;
-    --input: 218 22% 21%;
-    --ring: 189 95% 58%;
+    --card: 240 10% 4%;
+    --card-foreground: 210 40% 98%;
+    --popover: 240 10% 2%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 240 10% 6%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 240 10% 8%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 240 10% 6%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 240 5% 12%;
+    --ring: 224.3 76.3% 48%;
+    --radius: 0.5rem;
     --font-sans: 'Google Sans', ui-sans-serif, system-ui, sans-serif;
   }
 
@@ -57,9 +68,9 @@
   body {
     @apply min-h-screen bg-background font-sans text-foreground antialiased;
     background-image:
-      radial-gradient(circle at top left, rgba(34, 211, 238, 0.12), transparent 24%),
-      radial-gradient(circle at 80% 20%, rgba(59, 130, 246, 0.08), transparent 22%),
-      linear-gradient(180deg, #070b11 0%, #0b1016 100%);
+      radial-gradient(at 0% 0%, hsla(217, 91%, 60%, 0.05) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, hsla(217, 91%, 60%, 0.02) 0px, transparent 50%);
+    background-color: hsl(var(--background));
     user-select: none;
   }
 
@@ -70,7 +81,7 @@
   }
 
   ::selection {
-    background: rgba(34, 211, 238, 0.28);
+    background: hsla(217, 91%, 60%, 0.2);
   }
 }
 
@@ -88,3 +99,4 @@
   background: rgba(148, 163, 184, 0.24);
   background-clip: padding-box;
 }
+
