@@ -597,7 +597,7 @@ function App(): React.JSX.Element {
                         return (
                           <div
                             key={row.id}
-                            className="grid gap-3 rounded-[14px] border border-white/10 bg-white/3 p-4 lg:grid-cols-[minmax(0,1.1fr)_220px_240px_auto]"
+                            className="grid gap-3 rounded-[14px] border border-white/10 bg-white/3 p-4 lg:grid-cols-[minmax(0,1.1fr)_220px_240px_auto] space-y-3 m-20"
                           >
                             <div>
                               <Label>Charge Label</Label>
@@ -684,6 +684,7 @@ function App(): React.JSX.Element {
                         )
                       })}
                     </div>
+                    <div className="p-2"></div>
                     <Button
                       type="button"
                       variant="outline"
@@ -702,57 +703,62 @@ function App(): React.JSX.Element {
                 {activeOperation === 'others' ? (
                   <div className="space-y-6">
                     {others.map((row) => (
-                      <div
-                        key={row.id}
-                        className="grid gap-3 rounded-[14px] border border-white/10 bg-white/3 p-4 lg:grid-cols-[minmax(0,1fr)_220px_auto]"
-                      >
-                        <div>
-                          <Label>Label</Label>
-                          <Input
-                            value={row.label}
-                            onChange={(event) =>
-                              setOthers((current) =>
-                                current.map((item) =>
-                                  item.id === row.id ? { ...item, label: event.target.value } : item
+                      <>
+                        <div
+                          key={row.id}
+                          className="grid gap-3 rounded-[14px] border border-white/10 bg-white/3 p-4 lg:grid-cols-[minmax(0,1fr)_220px_auto]"
+                        >
+                          <div>
+                            <Label>Label</Label>
+                            <Input
+                              value={row.label}
+                              onChange={(event) =>
+                                setOthers((current) =>
+                                  current.map((item) =>
+                                    item.id === row.id
+                                      ? { ...item, label: event.target.value }
+                                      : item
+                                  )
                                 )
-                              )
-                            }
-                            placeholder="Report or treatment name"
-                            className={inputClassName}
-                          />
-                        </div>
-                        <div>
-                          <Label>Charge</Label>
-                          <Input
-                            type="number"
-                            value={row.amount}
-                            onChange={(event) =>
-                              setOthers((current) =>
-                                current.map((item) =>
-                                  item.id === row.id
-                                    ? { ...item, amount: event.target.value }
-                                    : item
+                              }
+                              placeholder="Report or treatment name"
+                              className={inputClassName}
+                            />
+                          </div>
+                          <div>
+                            <Label>Charge</Label>
+                            <Input
+                              type="number"
+                              value={row.amount}
+                              onChange={(event) =>
+                                setOthers((current) =>
+                                  current.map((item) =>
+                                    item.id === row.id
+                                      ? { ...item, amount: event.target.value }
+                                      : item
+                                  )
                                 )
-                              )
-                            }
-                            placeholder="0"
-                            className={inputClassName}
-                          />
+                              }
+                              placeholder="0"
+                              className={inputClassName}
+                            />
+                          </div>
+                          <div className="flex items-end">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() =>
+                                setOthers((current) => current.filter((item) => item.id !== row.id))
+                              }
+                              disabled={others.length === 1}
+                              className={cn(softButtonClassName, 'w-full rounded-lg')}
+                            >
+                              Remove
+                            </Button>
+                          </div>
                         </div>
-                        <div className="flex items-end">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() =>
-                              setOthers((current) => current.filter((item) => item.id !== row.id))
-                            }
-                            disabled={others.length === 1}
-                            className={cn(softButtonClassName, 'w-full rounded-lg')}
-                          >
-                            Remove
-                          </Button>
-                        </div>
-                      </div>
+                        <div className="h-2" />
+                      </>
                     ))}
                     <Button
                       type="button"
@@ -771,47 +777,6 @@ function App(): React.JSX.Element {
           </div>
 
           <div>
-            <SurfaceCard
-              eyebrow="Doctor"
-              title={doctor ? doctor.name : 'No doctor selected'}
-              description={
-                doctor
-                  ? `${doctor.specialty} - ${doctor.telephone}`
-                  : 'Select a doctor for OPD, Channeling, or Dental operations.'
-              }
-            >
-              {doctor ? (
-                <div className="grid gap-5 sm:grid-cols-2 my-6">
-                  <div className="rounded-xl border border-white/10 bg-white/3 p-4">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Email</p>
-                    <p className="mt-2 text-sm text-slate-100">{doctor.email}</p>
-                  </div>
-                  <div className="rounded-xl border border-white/10 bg-white/3 p-4">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                      Address
-                    </p>
-                    <p className="mt-2 text-sm text-slate-100">{doctor.address}</p>
-                  </div>
-                  {activeOperation === 'dental' ? (
-                    <div className="rounded-xl border border-cyan-300/20 bg-cyan-300/8 p-4 sm:col-span-2">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-200/80">
-                        Dental Split Rule
-                      </p>
-                      <p className="mt-2 text-sm leading-6 text-cyan-50">
-                        {doctor.dentalSplitMode === 'fixed'
-                          ? `In-house charge is fixed at ${money(doctor.dentalSplitValue)} per entered charge.`
-                          : `In-house charge is ${doctor.dentalSplitValue}% of each entered dental charge.`}
-                      </p>
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <div className="rounded-xl border border-dashed border-white/10 bg-white/3 p-6 text-sm text-slate-400">
-                  The current operation does not require a doctor selection yet.
-                </div>
-              )}
-            </SurfaceCard>
-            <div className="h-8" />
             <SurfaceCard
               eyebrow="Summary"
               title="Current bill"
