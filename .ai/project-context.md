@@ -12,6 +12,13 @@
 - Preload bridge: `src/preload/index.ts`
 - Renderer app: `src/renderer/src/App.tsx`
 - Styling: Tailwind CSS v4 plus custom CSS in `src/renderer/src/assets/main.css`
+- API integration: backend HTTP API, base URL must remain configurable
+- Local backend base URL for development: `http://test-b.local/`
+- API base URL should come from `.env`
+- Backend project location: `\\wsl.localhost\Ubuntu-24.04\home\eranda\test\test-b`
+- API route reference: `.ai/resources/routes.json`
+- API behavior/auth reference: `.ai/resources/API_ENDPOINTS.md`
+- API database reference: `.ai/resources/api-database.sql`
 - Database: SQLite via Prisma + `@prisma/adapter-better-sqlite3`
 - Prisma schema: `prisma/schema.prisma`
 - Packaging: `electron-builder.yml`
@@ -39,6 +46,7 @@
   - summary and print action
 - Patient lookup is implemented through preload IPC and Prisma search.
 - Search supports `name`, `email`, `telephone`, and `registrationNo` through the current backend search handler.
+- Future patient search, autofill, and bill creation work should prefer the API when suitable routes exist.
 - Doctor data shown on the home page is currently temporary UI-side seed data, not persisted database data.
 - Dental charges support in-house and referred split calculations in the UI.
 - Print currently uses `window.print()`.
@@ -62,4 +70,9 @@
 - Search/autofill by telephone and patient name is a core behavior, not a nice-to-have.
 - Reporting and print output are first-class features.
 - New features should be wired through main/preload/renderer boundaries instead of bypassing Electron security patterns.
+- API calls should be routed through the Electron main/preload boundary rather than called ad hoc from the renderer.
+- Keep API host configuration out of hardcoded renderer logic. Read it from `.env`. The current local value is `http://test-b.local/`.
+- Before adding or changing API usage, inspect `.ai/resources/routes.json`, `.ai/resources/API_ENDPOINTS.md`, and `.ai/resources/api-database.sql`.
+- Account for API headers/auth requirements from `.ai/resources/API_ENDPOINTS.md` before assuming a route is directly usable.
+- If a needed API route is missing, define the frontend contract clearly and coordinate a backend change in the WSL project if direct access is not available.
 - When doing substantial feature work, create or update `.ai/tasks/*.md` first.

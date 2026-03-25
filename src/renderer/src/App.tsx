@@ -7,9 +7,10 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 
 type Shift = 'Morning' | 'Evening'
-type SearchField = 'name' | 'telephone' | 'registrationNo'
+type SearchField = 'name' | 'telephone'
 
 interface PatientInfo {
+  id: number | null
   name: string
   telephone: string
   email: string
@@ -19,23 +20,25 @@ interface PatientInfo {
   registrationNo: string
 }
 
-interface UserRecord {
+interface PatientRecord {
   id: number
-  name?: string | null
-  email?: string | null
-  telephone?: string | null
-  address?: string | null
-  registrationNo?: string | null
-  gender?: string | null
+  name: string
+  email: string
+  telephone: string
+  age: string
+  address: string
+  registrationNo: string
+  gender: string
 }
 
 interface DoctorOption {
-  id: string
+  id: number
   name: string
   specialty: string
   telephone: string
   email: string
   address: string
+  doctorType: string
   dentalSplitMode: 'fixed' | 'percentage'
   dentalSplitValue: number
 }
@@ -47,41 +50,17 @@ interface ChargeRow {
 }
 
 type RendererApi = {
-  searchUsers: (query: string) => Promise<UserRecord[]>
+  searchPatients: (query: string) => Promise<PatientRecord[]>
+  listDoctors: () => Promise<DoctorOption[]>
+  submitBilling: (payload: {
+    patient: PatientInfo
+    doctorId: number
+    total: number
+    serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
+    shift: 'morning' | 'evening'
+    date: string
+  }) => Promise<{ patient: PatientRecord; bill: Record<string, unknown> }>
 }
-
-const doctors: DoctorOption[] = [
-  {
-    id: 'd1',
-    name: 'Dr. Nimal Perera',
-    specialty: 'OPD',
-    telephone: '+94 71 100 2000',
-    email: 'nimal@medical.local',
-    address: 'Main Street Clinic',
-    dentalSplitMode: 'fixed',
-    dentalSplitValue: 1250
-  },
-  {
-    id: 'd2',
-    name: 'Dr. Ishani Fernando',
-    specialty: 'Channeling',
-    telephone: '+94 71 100 3000',
-    email: 'ishani@medical.local',
-    address: 'Central Medical Center',
-    dentalSplitMode: 'percentage',
-    dentalSplitValue: 35
-  },
-  {
-    id: 'd3',
-    name: 'Dr. Rashmi Silva',
-    specialty: 'Dental Surgery',
-    telephone: '+94 71 100 4000',
-    email: 'rashmi@medical.local',
-    address: 'Smile Care Wing',
-    dentalSplitMode: 'percentage',
-    dentalSplitValue: 42
-  }
-]
 
 const inputClassName =
   'h-9 rounded-md border-border/90 bg-white/[0.035] text-sm text-white placeholder:text-slate-500 focus-visible:border-primary/70 focus-visible:ring-primary/20'
@@ -113,6 +92,49 @@ function splitDental(amount: number, doctor?: DoctorOption): { inHouse: number; 
   return { inHouse, referred: Math.max(amount - inHouse, 0) }
 }
 
+function operationDoctorType(operation: OperationType): string {
+  switch (operation) {
+    case 'opd':
+      return 'opd'
+    case 'channeling':
+      return 'specialist'
+    case 'dental':
+      return 'dental'
+    case 'others':
+      return 'treatment'
+  }
+}
+
+function operationServiceType(
+  operation: OperationType
+): 'opd' | 'specialist' | 'dental' | 'treatment' {
+  switch (operation) {
+    case 'opd':
+      return 'opd'
+    case 'channeling':
+      return 'specialist'
+    case 'dental':
+      return 'dental'
+    case 'others':
+      return 'treatment'
+  }
+}
+
+function doctorOptionsForOperation(
+  doctors: DoctorOption[],
+  operation: OperationType
+): DoctorOption[] {
+  const matches = doctors.filter((doctor) => doctor.doctorType === operationDoctorType(operation))
+  return matches.length > 0 ? matches : doctors
+}
+
+function billIdLabel(bill: Record<string, unknown>): string {
+  if (typeof bill.id === 'number') return `Bill #${bill.id} created`
+  if (typeof bill.bill_id === 'number') return `Bill #${bill.bill_id} created`
+  if (typeof bill.uuid === 'string') return `Bill ${bill.uuid} created`
+  return 'Bill created successfully'
+}
+
 function Label({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
     <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
@@ -137,12 +159,12 @@ function SearchBox({
   field: SearchField
   value: string
   placeholder: string
-  results: UserRecord[]
+  results: PatientRecord[]
   activeField: SearchField | null
   onFocus: (field: SearchField) => void
   onBlur: () => void
   onChange: (value: string) => void
-  onSelect: (user: UserRecord) => void
+  onSelect: (user: PatientRecord) => void
 }): React.JSX.Element {
   return (
     <div className="relative">
@@ -170,7 +192,7 @@ function SearchBox({
                   {user.name || 'Unnamed Patient'}
                 </span>
                 <span className="block text-[10px] text-slate-500">
-                  {user.telephone || user.registrationNo || user.email || 'No details'}
+                  {user.telephone || user.email || 'No details'}
                 </span>
               </span>
               <span className="text-[10px] text-primary">Autofill</span>
@@ -188,6 +210,7 @@ function App(): React.JSX.Element {
   const [shift, setShift] = useState<Shift>('Morning')
   const [billDate, setBillDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [patient, setPatient] = useState<PatientInfo>({
+    id: null,
     name: '',
     telephone: '',
     email: '',
@@ -197,22 +220,75 @@ function App(): React.JSX.Element {
     registrationNo: ''
   })
   const [activeField, setActiveField] = useState<SearchField | null>(null)
-  const [searchResults, setSearchResults] = useState<UserRecord[]>([])
-  const [opd, setOpd] = useState({ doctorId: doctors[0].id, consultationFee: '', medicineFee: '' })
+  const [searchResults, setSearchResults] = useState<PatientRecord[]>([])
+  const [searchError, setSearchError] = useState('')
+  const [doctors, setDoctors] = useState<DoctorOption[]>([])
+  const [doctorError, setDoctorError] = useState('')
+  const [doctorLoading, setDoctorLoading] = useState(true)
+  const [submitState, setSubmitState] = useState<{
+    status: 'idle' | 'loading' | 'success' | 'error'
+    message: string
+  }>({ status: 'idle', message: '' })
+  const [opd, setOpd] = useState({ doctorId: 0, consultationFee: '', medicineFee: '' })
   const [channeling, setChanneling] = useState({
-    doctorId: doctors[1].id,
+    doctorId: 0,
     consultationFee: '',
     bookingFee: ''
   })
   const [dental, setDental] = useState({
-    doctorId: doctors[2].id,
+    doctorId: 0,
     registrationFee: '',
     rows: [makeRow('Consultation', ''), makeRow('Medicine', '')]
   })
+  const [othersDoctorId, setOthersDoctorId] = useState(0)
   const [others, setOthers] = useState<ChargeRow[]>([
     makeRow('Report Charge', ''),
     makeRow('Treatment Charge', '')
   ])
+
+  useEffect(() => {
+    let cancelled = false
+
+    void api
+      .listDoctors()
+      .then((records) => {
+        if (cancelled) return
+        setDoctors(records)
+        setDoctorError('')
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        setDoctors([])
+        setDoctorError(error instanceof Error ? error.message : 'Failed to load doctors')
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setDoctorLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [api])
+
+  useEffect(() => {
+    if (doctors.length === 0) return
+
+    const opdDefault = doctorOptionsForOperation(doctors, 'opd')[0]?.id ?? doctors[0].id
+    const channelingDefault =
+      doctorOptionsForOperation(doctors, 'channeling')[0]?.id ?? doctors[0].id
+    const dentalDefault = doctorOptionsForOperation(doctors, 'dental')[0]?.id ?? doctors[0].id
+    const othersDefault = doctorOptionsForOperation(doctors, 'others')[0]?.id ?? doctors[0].id
+
+    setOpd((current) => ({ ...current, doctorId: current.doctorId || opdDefault }))
+    setChanneling((current) => ({
+      ...current,
+      doctorId: current.doctorId || channelingDefault
+    }))
+    setDental((current) => ({ ...current, doctorId: current.doctorId || dentalDefault }))
+    setOthersDoctorId((current) => current || othersDefault)
+  }, [doctors])
 
   useEffect(() => {
     const query =
@@ -220,44 +296,55 @@ function App(): React.JSX.Element {
         ? patient.name
         : activeField === 'telephone'
           ? patient.telephone
-          : activeField === 'registrationNo'
-            ? patient.registrationNo
-            : ''
+          : ''
     if (!activeField || query.trim().length < 2) {
+      setSearchResults([])
+      setSearchError('')
       return
     }
     const timer = setTimeout(() => {
       void api
-        .searchUsers(query.trim())
-        .then(setSearchResults)
-        .catch(() => setSearchResults([]))
+        .searchPatients(query.trim())
+        .then((records) => {
+          setSearchResults(records)
+          setSearchError('')
+        })
+        .catch((error: unknown) => {
+          setSearchResults([])
+          setSearchError(error instanceof Error ? error.message : 'Failed to search patients')
+        })
     }, 220)
     return () => clearTimeout(timer)
-  }, [activeField, api, patient.name, patient.registrationNo, patient.telephone])
+  }, [activeField, api, patient.name, patient.telephone])
 
-  const setPatientField = (key: keyof PatientInfo, value: string): void =>
+  const setPatientField = (key: keyof PatientInfo, value: string | number | null): void => {
     setPatient((current) => ({ ...current, [key]: value }))
+    if (submitState.status !== 'idle') {
+      setSubmitState({ status: 'idle', message: '' })
+    }
+  }
 
-  const fillPatient = (user: UserRecord): void => {
-    setPatient((current) => ({
-      ...current,
+  const fillPatient = (user: PatientRecord): void => {
+    setPatient({
+      id: user.id,
       name: user.name ?? '',
       telephone: user.telephone ?? '',
       email: user.email ?? '',
+      age: user.age ?? '',
       address: user.address ?? '',
       registrationNo: user.registrationNo ?? '',
-      gender: user.gender ?? current.gender
-    }))
+      gender: user.gender ? user.gender[0].toUpperCase() + user.gender.slice(1) : 'Male'
+    })
     setSearchResults([])
+    setSearchError('')
     setActiveField(null)
+    setSubmitState({ status: 'idle', message: '' })
   }
 
+  const dentalDoctor = doctors.find((item) => item.id === dental.doctorId)
   const dentalSplit = dental.rows.reduce(
     (total, row) => {
-      const split = splitDental(
-        num(row.amount),
-        doctors.find((item) => item.id === dental.doctorId)
-      )
+      const split = splitDental(num(row.amount), dentalDoctor)
       return { inHouse: total.inHouse + split.inHouse, referred: total.referred + split.referred }
     },
     { inHouse: 0, referred: 0 }
@@ -287,6 +374,60 @@ function App(): React.JSX.Element {
               value: num(row.amount)
             }))
   const total = summary.reduce((sum, item) => sum + item.value, 0)
+  const currentDoctorId =
+    activeOperation === 'opd'
+      ? opd.doctorId
+      : activeOperation === 'channeling'
+        ? channeling.doctorId
+        : activeOperation === 'dental'
+          ? dental.doctorId
+          : othersDoctorId
+  const currentDoctorOptions = doctorOptionsForOperation(doctors, activeOperation)
+
+  const handleSubmit = async (): Promise<void> => {
+    if (!patient.name.trim()) {
+      setSubmitState({ status: 'error', message: 'Patient name is required.' })
+      return
+    }
+    if (!patient.telephone.trim()) {
+      setSubmitState({ status: 'error', message: 'Patient telephone is required.' })
+      return
+    }
+    if (!patient.age.trim() || Number(patient.age) <= 0) {
+      setSubmitState({ status: 'error', message: 'Patient age must be a valid number.' })
+      return
+    }
+    if (!currentDoctorId) {
+      setSubmitState({ status: 'error', message: 'Select a doctor before generating the bill.' })
+      return
+    }
+    if (total <= 0) {
+      setSubmitState({ status: 'error', message: 'Enter at least one bill amount before printing.' })
+      return
+    }
+
+    setSubmitState({ status: 'loading', message: 'Saving patient and creating bill...' })
+
+    try {
+      const result = await api.submitBilling({
+        patient,
+        doctorId: currentDoctorId,
+        total,
+        serviceType: operationServiceType(activeOperation),
+        shift: shift.toLowerCase() as 'morning' | 'evening',
+        date: billDate
+      })
+
+      fillPatient(result.patient)
+      setSubmitState({ status: 'success', message: billIdLabel(result.bill) })
+      window.print()
+    } catch (error) {
+      setSubmitState({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to create bill'
+      })
+    }
+  }
 
   return (
     <main className="min-h-screen p-4 text-white sm:p-5">
@@ -363,6 +504,7 @@ function App(): React.JSX.Element {
                   onBlur={() => {
                     setActiveField(null)
                     setSearchResults([])
+                    setSearchError('')
                   }}
                   onChange={(value) => setPatientField('name', value)}
                   onSelect={fillPatient}
@@ -378,6 +520,7 @@ function App(): React.JSX.Element {
                   onBlur={() => {
                     setActiveField(null)
                     setSearchResults([])
+                    setSearchError('')
                   }}
                   onChange={(value) => setPatientField('telephone', value)}
                   onSelect={fillPatient}
@@ -400,21 +543,15 @@ function App(): React.JSX.Element {
                     className={inputClassName}
                   />
                 </div>
-                <SearchBox
-                  label="Registration No"
-                  field="registrationNo"
-                  value={patient.registrationNo}
-                  placeholder="Registration number"
-                  results={searchResults}
-                  activeField={activeField}
-                  onFocus={setActiveField}
-                  onBlur={() => {
-                    setActiveField(null)
-                    setSearchResults([])
-                  }}
-                  onChange={(value) => setPatientField('registrationNo', value)}
-                  onSelect={fillPatient}
-                />
+                <div>
+                  <Label>Registration No</Label>
+                  <Input
+                    value={patient.registrationNo}
+                    onChange={(event) => setPatientField('registrationNo', event.target.value)}
+                    placeholder="Registration number"
+                    className={inputClassName}
+                  />
+                </div>
                 <div>
                   <Label>Gender</Label>
                   <select
@@ -442,6 +579,11 @@ function App(): React.JSX.Element {
                     className={inputClassName}
                   />
                 </div>
+                {searchError ? (
+                  <div className="md:col-span-2 xl:col-span-3 rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                    {searchError}
+                  </div>
+                ) : null}
               </div>
             </SurfaceCard>
 
@@ -455,11 +597,12 @@ function App(): React.JSX.Element {
                       <select
                         value={opd.doctorId}
                         onChange={(event) =>
-                          setOpd((current) => ({ ...current, doctorId: event.target.value }))
+                          setOpd((current) => ({ ...current, doctorId: Number(event.target.value) }))
                         }
                         className={selectClassName}
+                        disabled={doctorLoading || currentDoctorOptions.length === 0}
                       >
-                        {doctors.map((item) => (
+                        {currentDoctorOptions.map((item) => (
                           <option key={item.id} value={item.id} className="bg-slate-900">
                             {item.name} - {item.specialty}
                           </option>
@@ -499,11 +642,15 @@ function App(): React.JSX.Element {
                       <select
                         value={channeling.doctorId}
                         onChange={(event) =>
-                          setChanneling((current) => ({ ...current, doctorId: event.target.value }))
+                          setChanneling((current) => ({
+                            ...current,
+                            doctorId: Number(event.target.value)
+                          }))
                         }
                         className={selectClassName}
+                        disabled={doctorLoading || currentDoctorOptions.length === 0}
                       >
-                        {doctors.map((item) => (
+                        {currentDoctorOptions.map((item) => (
                           <option key={item.id} value={item.id} className="bg-slate-900">
                             {item.name} - {item.specialty}
                           </option>
@@ -550,11 +697,15 @@ function App(): React.JSX.Element {
                         <select
                           value={dental.doctorId}
                           onChange={(event) =>
-                            setDental((current) => ({ ...current, doctorId: event.target.value }))
+                            setDental((current) => ({
+                              ...current,
+                              doctorId: Number(event.target.value)
+                            }))
                           }
                           className={selectClassName}
+                          disabled={doctorLoading || currentDoctorOptions.length === 0}
                         >
-                          {doctors.map((item) => (
+                          {currentDoctorOptions.map((item) => (
                             <option key={item.id} value={item.id} className="bg-slate-900">
                               {item.name} - {item.specialty}
                             </option>
@@ -680,6 +831,21 @@ function App(): React.JSX.Element {
                 ) : null}
                 {activeOperation === 'others' ? (
                   <div className="space-y-2.5">
+                    <div>
+                      <Label>Doctor</Label>
+                      <select
+                        value={othersDoctorId}
+                        onChange={(event) => setOthersDoctorId(Number(event.target.value))}
+                        className={selectClassName}
+                        disabled={doctorLoading || currentDoctorOptions.length === 0}
+                      >
+                        {currentDoctorOptions.map((item) => (
+                          <option key={item.id} value={item.id} className="bg-slate-900">
+                            {item.name} - {item.specialty}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     {others.map((row) => (
                       <div
                         key={row.id}
@@ -745,6 +911,11 @@ function App(): React.JSX.Element {
                     </Button>
                   </div>
                 ) : null}
+                {doctorError ? (
+                  <div className="rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                    {doctorError}
+                  </div>
+                ) : null}
               </div>
             </SurfaceCard>
           </div>
@@ -802,13 +973,35 @@ function App(): React.JSX.Element {
                     {money(total)}
                   </p>
                 </div>
+                {submitState.status !== 'idle' ? (
+                  <div
+                    className={cn(
+                      'rounded-lg px-3 py-2 text-xs',
+                      submitState.status === 'success'
+                        ? 'border border-emerald-400/25 bg-emerald-500/10 text-emerald-100'
+                        : submitState.status === 'error'
+                          ? 'border border-rose-400/25 bg-rose-500/10 text-rose-100'
+                          : 'border border-primary/20 bg-primary/10 text-primary'
+                    )}
+                  >
+                    {submitState.message}
+                  </div>
+                ) : null}
                 <div className="grid gap-2">
                   <Button
                     type="button"
-                    onClick={() => window.print()}
-                    className="h-10 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-[0_14px_28px_rgba(34,211,238,0.22)] hover:bg-primary/90"
+                    onClick={() => void handleSubmit()}
+                    disabled={
+                      submitState.status === 'loading' ||
+                      doctorLoading ||
+                      doctors.length === 0 ||
+                      currentDoctorOptions.length === 0
+                    }
+                    className="h-10 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-[0_14px_28px_rgba(34,211,238,0.22)] hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
                   >
-                    Generate And Print Bill
+                    {submitState.status === 'loading'
+                      ? 'Saving And Creating Bill...'
+                      : 'Generate And Print Bill'}
                   </Button>
                 </div>
               </div>

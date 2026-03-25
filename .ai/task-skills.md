@@ -17,10 +17,27 @@ Use when implementing features, data models, labels, or reports.
 Use when adding persistence, search, or commands from the UI.
 
 - Put database and privileged logic in the main process.
+- Put API integration logic and host configuration in the main process.
 - Add a preload bridge method for the smallest useful API surface.
 - Keep renderer code free of direct Node/Prisma access.
+- Keep renderer code free of direct backend host assumptions when the main/preload layer can own them.
 - Update preload typings if the renderer-facing API changes.
 - Verify the renderer only uses APIs exposed on `window.api` or `window.electron`.
+
+## Skill: API Integration
+
+Use when a task depends on backend routes, remote persistence, search suggestions, or bill creation.
+
+- Read `.ai/resources/routes.json` before inventing a new endpoint.
+- Read `.ai/resources/API_ENDPOINTS.md` before assuming auth-free or public access.
+- Read `.ai/resources/api-database.sql` when the payload or persistence shape is unclear.
+- Keep the API base URL configurable in `.env`. Current local value: `http://test-b.local/`.
+- Prefer reusing existing routes over creating parallel variants without a reason.
+- If one route can return enough patient data for suggestion selection and autofill, prefer that over extra round trips.
+- Respect required `X-API-KEY`, `Referer`, and Sanctum requirements when selecting usable endpoints.
+- If a required route is missing, define the needed contract clearly and add it in the backend project when access is available.
+- Backend project path for route work: `\\wsl.localhost\Ubuntu-24.04\home\eranda\test\test-b`.
+- If backend edits are blocked by missing WSL access, document the required change precisely for the user instead of hand-waving it.
 
 ## Skill: Prisma Schema Changes
 
@@ -73,4 +90,5 @@ Before substantial work:
 - Read `.ai/project-context.md`.
 - Read the most relevant section in this file.
 - Re-open `.ai/product-spec.md` if the task affects behavior, terminology, or data.
+- Read `.ai/resources/routes.json`, `.ai/resources/API_ENDPOINTS.md`, and `.ai/resources/api-database.sql` for API-backed work.
 - Create or update the relevant file in `.ai/tasks/`.

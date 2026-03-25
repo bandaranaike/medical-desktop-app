@@ -6,3 +6,5 @@ out
 *.log*
 
 /src/generated/prisma
+/.ai/resources/
+.env

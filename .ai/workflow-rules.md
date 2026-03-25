@@ -13,6 +13,7 @@
 - Map the request against `.ai/product-spec.md`.
 - Note whether the code already supports it, partially supports it, or conflicts with it.
 - If implementation and requirement differ, move toward the requirement unless the user says otherwise.
+- For API-backed features, verify whether an existing route already supports the need before proposing a new one.
 
 ## When working on UI tasks
 
@@ -29,6 +30,17 @@
 - Keep patient lookup behavior consistent across name, telephone, and registration number when relevant.
 - Report generation should produce deterministic results from persisted data, not only transient UI state.
 - After Prisma dependency or schema changes, regenerate the Prisma client before assuming the app runtime is healthy.
+- If the feature persists through the API, verify the request/response shape against `.ai/resources/routes.json` and `.ai/resources/api-database.sql`.
+- Keep the backend base URL configurable via `.env`. Current local value is `http://test-b.local/`.
+
+## When working on API integration
+
+- Route backend access through the Electron main/preload boundary.
+- Prefer existing API routes from `.ai/resources/routes.json`.
+- Confirm auth/header requirements in `.ai/resources/API_ENDPOINTS.md` before choosing an endpoint.
+- If a missing route is necessary, specify the exact request, response, and persistence behavior before changing the UI around assumptions.
+- Backend project path is `\\wsl.localhost\Ubuntu-24.04\home\eranda\test\test-b`.
+- If backend filesystem access is unavailable, stop at a precise backend change request for the user instead of claiming the route exists.
 
 ## When working on naming
 
