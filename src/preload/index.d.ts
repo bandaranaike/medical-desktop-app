@@ -39,6 +39,12 @@ type BillingSubmission = {
   serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
   shift: 'morning' | 'evening'
   date: string
+  doctorName: string
+  paymentType: 'cash' | 'card' | 'online'
+  items: Array<{
+    name: string
+    price: string
+  }>
 }
 
 declare global {
@@ -51,7 +57,7 @@ declare global {
       listDoctors(): Promise<DoctorRecord[]>
       submitBilling(
         payload: BillingSubmission
-      ): Promise<{ patient: PatientRecord; bill: Record<string, unknown> }>
+      ): Promise<{ patient: PatientRecord; bill: Record<string, unknown>; print: Record<string, unknown> }>
     }
   }
 }

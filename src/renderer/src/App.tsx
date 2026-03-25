@@ -49,6 +49,11 @@ interface ChargeRow {
   amount: string
 }
 
+interface PrintLineItem {
+  name: string
+  price: string
+}
+
 type RendererApi = {
   searchPatients: (query: string) => Promise<PatientRecord[]>
   listDoctors: () => Promise<DoctorOption[]>
@@ -59,7 +64,10 @@ type RendererApi = {
     serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
     shift: 'morning' | 'evening'
     date: string
-  }) => Promise<{ patient: PatientRecord; bill: Record<string, unknown> }>
+    doctorName: string
+    paymentType: 'cash' | 'card' | 'online'
+    items: PrintLineItem[]
+  }) => Promise<{ patient: PatientRecord; bill: Record<string, unknown>; print: Record<string, unknown> }>
 }
 
 const inputClassName =
@@ -382,6 +390,7 @@ function App(): React.JSX.Element {
         : activeOperation === 'dental'
           ? dental.doctorId
           : othersDoctorId
+  const currentDoctor = doctors.find((item) => item.id === currentDoctorId)
   const currentDoctorOptions = doctorOptionsForOperation(doctors, activeOperation)
 
   const handleSubmit = async (): Promise<void> => {
@@ -409,18 +418,27 @@ function App(): React.JSX.Element {
     setSubmitState({ status: 'loading', message: 'Saving patient and creating bill...' })
 
     try {
+      const printItems = summary
+        .filter((item) => item.value > 0)
+        .map<PrintLineItem>((item) => ({
+          name: item.label,
+          price: item.value.toFixed(2)
+        }))
+
       const result = await api.submitBilling({
         patient,
         doctorId: currentDoctorId,
         total,
         serviceType: operationServiceType(activeOperation),
         shift: shift.toLowerCase() as 'morning' | 'evening',
-        date: billDate
+        date: billDate,
+        doctorName: currentDoctor?.name ?? '',
+        paymentType: 'cash',
+        items: printItems
       })
 
       fillPatient(result.patient)
       setSubmitState({ status: 'success', message: billIdLabel(result.bill) })
-      window.print()
     } catch (error) {
       setSubmitState({
         status: 'error',

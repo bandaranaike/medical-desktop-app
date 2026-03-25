@@ -40,6 +40,12 @@ type BillingSubmission = {
   serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
   shift: 'morning' | 'evening'
   date: string
+  doctorName: string
+  paymentType: 'cash' | 'card' | 'online'
+  items: Array<{
+    name: string
+    price: string
+  }>
 }
 
 const api = {
@@ -50,7 +56,7 @@ const api = {
   listDoctors: (): Promise<DoctorRecord[]> => ipcRenderer.invoke('doctors:list'),
   submitBilling: (
     payload: BillingSubmission
-  ): Promise<{ patient: PatientRecord; bill: Record<string, unknown> }> =>
+  ): Promise<{ patient: PatientRecord; bill: Record<string, unknown>; print: Record<string, unknown> }> =>
     ipcRenderer.invoke('billing:submit', payload)
 }
 

@@ -62,11 +62,18 @@ type BillingSubmission = {
   serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
   shift: 'morning' | 'evening'
   date: string
+  doctorName: string
+  paymentType: 'cash' | 'card' | 'online'
+  items: Array<{
+    name: string
+    price: string
+  }>
 }
 
 type BillingResult = {
   patient: PatientRecord
   bill: Record<string, unknown>
+  print: Record<string, unknown>
 }
 
 function getApiConfig(): {
@@ -99,6 +106,16 @@ function getApiConfig(): {
     referer: referer!,
     authToken: authToken!
   }
+}
+
+function getPrinterBaseUrl(): string {
+  const baseUrl = process.env['PRINTER_BASE_URL']?.trim()
+
+  if (!baseUrl) {
+    throw new Error('Missing printer configuration in .env: PRINTER_BASE_URL')
+  }
+
+  return baseUrl.replace(/\/+$/, '')
 }
 
 async function apiRequest<T>(
@@ -328,7 +345,7 @@ async function createBill(payload: BillingSubmission, patientId: number): Promis
     method: 'POST',
     body: JSON.stringify({
       bill_amount: payload.total,
-      payment_type: 'cash',
+      payment_type: payload.paymentType,
       system_amount: 0,
       patient_id: patientId,
       doctor_id: payload.doctorId,
@@ -340,10 +357,63 @@ async function createBill(payload: BillingSubmission, patientId: number): Promis
   })
 }
 
+function getBillIdentifier(bill: Record<string, unknown>): number | null {
+  return getNumber(bill, 'id') ?? getNumber(bill, 'bill_id')
+}
+
+function getBillReference(bill: Record<string, unknown>): string {
+  return (
+    getString(bill, 'bill_reference') ||
+    getString(bill, 'reference') ||
+    getString(bill, 'uuid') ||
+    ''
+  )
+}
+
+async function printBill(
+  payload: BillingSubmission,
+  patient: PatientRecord,
+  bill: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const billId = getBillIdentifier(bill)
+
+  if (!billId) {
+    throw new Error('Bill was created, but no printable bill id was returned by the API.')
+  }
+
+  const response = await fetch(`${getPrinterBaseUrl()}/print`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      bill_reference: getBillReference(bill),
+      payment_type: payload.paymentType,
+      bill_id: billId,
+      customer_name: patient.name,
+      doctor_name: payload.doctorName,
+      items: payload.items,
+      total: payload.total.toFixed(2)
+    })
+  })
+
+  const rawText = await response.text()
+  const body = rawText ? safeJsonParse(rawText) : null
+
+  if (!response.ok) {
+    const message = getErrorMessage(body, response.statusText)
+    throw new Error(message || `Printer request failed with status ${response.status}`)
+  }
+
+  return (body as Record<string, unknown>) ?? {}
+}
+
 async function submitBilling(payload: BillingSubmission): Promise<BillingResult> {
   const patient = await upsertPatient(payload.patient)
   const bill = await createBill(payload, patient.id)
-  return { patient, bill }
+  const print = await printBill(payload, patient, bill)
+  return { patient, bill, print }
 }
 
 function createWindow(): void {
