@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useEffectEvent, useState } from 'react'
 
 import { OperationTabs, type OperationType } from '@/components/home/operation-tabs'
 import { SurfaceCard } from '@/components/home/surface-card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { ToastRegion, type ToastItem, type ToastTone } from '@/components/ui/toast-region'
 import { cn } from '@/lib/utils'
 
 type Shift = 'Morning' | 'Evening'
@@ -54,6 +55,12 @@ interface PrintLineItem {
   price: string
 }
 
+interface AppNotification {
+  level: ToastTone
+  title: string
+  message: string
+}
+
 type RendererApi = {
   searchPatients: (query: string) => Promise<PatientRecord[]>
   listDoctors: () => Promise<DoctorOption[]>
@@ -68,6 +75,7 @@ type RendererApi = {
     paymentType: 'cash' | 'card' | 'online'
     items: PrintLineItem[]
   }) => Promise<{ patient: PatientRecord; bill: Record<string, unknown>; print: Record<string, unknown> }>
+  onAppNotification: (callback: (notification: AppNotification) => void) => () => void
 }
 
 const inputClassName =
@@ -141,6 +149,15 @@ function billIdLabel(bill: Record<string, unknown>): string {
   if (typeof bill.bill_id === 'number') return `Bill #${bill.bill_id} created`
   if (typeof bill.uuid === 'string') return `Bill ${bill.uuid} created`
   return 'Bill created successfully'
+}
+
+function makeToast(level: ToastTone, title: string, message: string): ToastItem {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    level,
+    title,
+    message
+  }
 }
 
 function Label({ children }: { children: React.ReactNode }): React.JSX.Element {
@@ -237,6 +254,7 @@ function App(): React.JSX.Element {
     status: 'idle' | 'loading' | 'success' | 'error'
     message: string
   }>({ status: 'idle', message: '' })
+  const [toasts, setToasts] = useState<ToastItem[]>([])
   const [opd, setOpd] = useState({ doctorId: 0, consultationFee: '', medicineFee: '' })
   const [channeling, setChanneling] = useState({
     doctorId: 0,
@@ -253,6 +271,18 @@ function App(): React.JSX.Element {
     makeRow('Report Charge', ''),
     makeRow('Treatment Charge', '')
   ])
+  const dismissToast = useEffectEvent((id: string) => {
+    setToasts((current) => current.filter((toast) => toast.id !== id))
+  })
+  const pushToast = useEffectEvent((level: ToastTone, title: string, message: string) => {
+    setToasts((current) => [...current.slice(-3), makeToast(level, title, message)])
+  })
+
+  useEffect(() => {
+    return api.onAppNotification((notification) => {
+      pushToast(notification.level, notification.title, notification.message)
+    })
+  }, [api, pushToast])
 
   useEffect(() => {
     let cancelled = false
@@ -266,8 +296,10 @@ function App(): React.JSX.Element {
       })
       .catch((error: unknown) => {
         if (cancelled) return
+        const message = error instanceof Error ? error.message : 'Failed to load doctors'
         setDoctors([])
-        setDoctorError(error instanceof Error ? error.message : 'Failed to load doctors')
+        setDoctorError(message)
+        pushToast('error', 'Doctor list unavailable', message)
       })
       .finally(() => {
         if (!cancelled) {
@@ -318,12 +350,14 @@ function App(): React.JSX.Element {
           setSearchError('')
         })
         .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : 'Failed to search patients'
           setSearchResults([])
-          setSearchError(error instanceof Error ? error.message : 'Failed to search patients')
+          setSearchError(message)
+          pushToast('warning', 'Patient search failed', message)
         })
     }, 220)
     return () => clearTimeout(timer)
-  }, [activeField, api, patient.name, patient.telephone])
+  }, [activeField, api, patient.name, patient.telephone, pushToast])
 
   const setPatientField = (key: keyof PatientInfo, value: string | number | null): void => {
     setPatient((current) => ({ ...current, [key]: value }))
@@ -395,23 +429,33 @@ function App(): React.JSX.Element {
 
   const handleSubmit = async (): Promise<void> => {
     if (!patient.name.trim()) {
-      setSubmitState({ status: 'error', message: 'Patient name is required.' })
+      const message = 'Patient name is required.'
+      setSubmitState({ status: 'error', message })
+      pushToast('warning', 'Missing patient name', message)
       return
     }
     if (!patient.telephone.trim()) {
-      setSubmitState({ status: 'error', message: 'Patient telephone is required.' })
+      const message = 'Patient telephone is required.'
+      setSubmitState({ status: 'error', message })
+      pushToast('warning', 'Missing telephone number', message)
       return
     }
     if (!patient.age.trim() || Number(patient.age) <= 0) {
-      setSubmitState({ status: 'error', message: 'Patient age must be a valid number.' })
+      const message = 'Patient age must be a valid number.'
+      setSubmitState({ status: 'error', message })
+      pushToast('warning', 'Invalid patient age', message)
       return
     }
     if (!currentDoctorId) {
-      setSubmitState({ status: 'error', message: 'Select a doctor before generating the bill.' })
+      const message = 'Select a doctor before generating the bill.'
+      setSubmitState({ status: 'error', message })
+      pushToast('warning', 'Doctor required', message)
       return
     }
     if (total <= 0) {
-      setSubmitState({ status: 'error', message: 'Enter at least one bill amount before printing.' })
+      const message = 'Enter at least one bill amount before printing.'
+      setSubmitState({ status: 'error', message })
+      pushToast('warning', 'Missing bill amount', message)
       return
     }
 
@@ -439,16 +483,20 @@ function App(): React.JSX.Element {
 
       fillPatient(result.patient)
       setSubmitState({ status: 'success', message: billIdLabel(result.bill) })
+      pushToast('success', 'Bill created', billIdLabel(result.bill))
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create bill'
       setSubmitState({
         status: 'error',
-        message: error instanceof Error ? error.message : 'Failed to create bill'
+        message
       })
+      pushToast('error', 'Billing failed', message)
     }
   }
 
   return (
     <main className="min-h-screen p-4 text-white sm:p-5">
+      <ToastRegion toasts={toasts} onDismiss={dismissToast} />
       <div className="mx-auto flex max-w-6xl flex-col gap-4">
         <section className="relative overflow-hidden rounded-xl border border-border/90 bg-[linear-gradient(180deg,rgba(12,19,30,0.98),rgba(16,25,39,0.94))] p-4 shadow-[0_24px_50px_rgba(3,9,18,0.3)]">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.12),transparent_32%)]" />

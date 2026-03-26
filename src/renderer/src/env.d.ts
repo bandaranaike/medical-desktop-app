@@ -48,6 +48,12 @@ type BillingSubmission = {
   }>
 }
 
+type AppNotification = {
+  level: 'error' | 'warning' | 'info' | 'success'
+  title: string
+  message: string
+}
+
 declare global {
   interface Window {
     api: {
@@ -57,6 +63,7 @@ declare global {
       submitBilling(
         payload: BillingSubmission
       ): Promise<{ patient: PatientRecord; bill: Record<string, unknown>; print: Record<string, unknown> }>
+      onAppNotification(callback: (notification: AppNotification) => void): () => void
     }
   }
 }

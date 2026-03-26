@@ -48,6 +48,14 @@ type BillingSubmission = {
   }>
 }
 
+type AppNotification = {
+  level: 'error' | 'warning' | 'info' | 'success'
+  title: string
+  message: string
+}
+
+const APP_NOTIFICATION_CHANNEL = 'app:notification'
+
 const api = {
   createUser: (user: { name: string; email: string }) => ipcRenderer.invoke('user:create', user),
   listUsers: () => ipcRenderer.invoke('user:list'),
@@ -57,7 +65,18 @@ const api = {
   submitBilling: (
     payload: BillingSubmission
   ): Promise<{ patient: PatientRecord; bill: Record<string, unknown>; print: Record<string, unknown> }> =>
-    ipcRenderer.invoke('billing:submit', payload)
+    ipcRenderer.invoke('billing:submit', payload),
+  onAppNotification: (callback: (notification: AppNotification) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, notification: AppNotification) => {
+      callback(notification)
+    }
+
+    ipcRenderer.on(APP_NOTIFICATION_CHANNEL, listener)
+
+    return () => {
+      ipcRenderer.removeListener(APP_NOTIFICATION_CHANNEL, listener)
+    }
+  }
 }
 
 if (process.contextIsolated) {

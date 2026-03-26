@@ -3,7 +3,7 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 
 loadEnv()
 
-// Disable Autofill in DevTools to avoid noise in console
+// Disable Autofill in DevTools to avoid noise in the console
 app.commandLine.appendSwitch('disable-features', 'AutofillServerCommunication')
 // More specific switch if the above isn't enough
 app.commandLine.appendSwitch('disable-autofill')
@@ -74,6 +74,69 @@ type BillingResult = {
   patient: PatientRecord
   bill: Record<string, unknown>
   print: Record<string, unknown>
+}
+
+type AppNotificationLevel = 'error' | 'warning' | 'info' | 'success'
+
+type AppNotification = {
+  level: AppNotificationLevel
+  title: string
+  message: string
+}
+
+const APP_NOTIFICATION_CHANNEL = 'app:notification'
+
+function getUnknownErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === 'string' && error.trim()) return error
+
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return 'Unknown error'
+  }
+}
+
+function broadcastAppNotification(notification: AppNotification, window?: BrowserWindow): void {
+  const windows = window ? [window] : BrowserWindow.getAllWindows()
+
+  for (const target of windows) {
+    if (target.isDestroyed()) continue
+    target.webContents.send(APP_NOTIFICATION_CHANNEL, notification)
+  }
+}
+
+function reportAppError(
+  context: string,
+  error: unknown,
+  options?: {
+    title?: string
+    window?: BrowserWindow
+  }
+): void {
+  const message = getUnknownErrorMessage(error)
+  console.error(`[${context}]`, error)
+  broadcastAppNotification(
+    {
+      level: 'error',
+      title: options?.title ?? 'Application error',
+      message
+    },
+    options?.window
+  )
+}
+
+function handlePromiseError<T>(
+  promise: Promise<T>,
+  context: string,
+  options?: {
+    title?: string
+    window?: BrowserWindow
+  }
+): void {
+  void promise.catch((error) => {
+    reportAppError(context, error, options)
+  })
 }
 
 function getApiConfig(): {
@@ -163,7 +226,9 @@ function safeJsonParse(value: string): unknown {
 
 function getCollection(payload: unknown): Record<string, unknown>[] {
   if (Array.isArray(payload)) {
-    return payload.filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+    return payload.filter(
+      (item): item is Record<string, unknown> => typeof item === 'object' && item !== null
+    )
   }
   if (
     payload &&
@@ -193,7 +258,9 @@ function getErrorMessage(payload: unknown, fallback: string): string {
     if (errors && typeof errors === 'object') {
       for (const value of Object.values(errors as Record<string, unknown>)) {
         if (Array.isArray(value)) {
-          const first = value.find((item): item is string => typeof item === 'string' && item.trim().length > 0)
+          const first = value.find(
+            (item): item is string => typeof item === 'string' && item.trim().length > 0
+          )
           if (first) return first
         }
         if (typeof value === 'string' && value.trim()) {
@@ -237,14 +304,10 @@ function normalizePatient(record: Record<string, unknown>): PatientRecord {
     name: getString(record, 'name'),
     telephone: getString(record, 'telephone') || getString(record, 'phone'),
     email: getString(record, 'email'),
-    age:
-      getString(record, 'age') ||
-      String(getNumber(record, 'age') ?? ''),
+    age: getString(record, 'age') || String(getNumber(record, 'age') ?? ''),
     gender: getString(record, 'gender'),
     address: getString(record, 'address'),
-    registrationNo:
-      getString(record, 'registrationNo') ||
-      getString(record, 'registration_no')
+    registrationNo: getString(record, 'registrationNo') || getString(record, 'registration_no')
   }
 }
 
@@ -287,13 +350,20 @@ async function listDoctors(): Promise<DoctorRecord[]> {
     .filter((item) => item.id > 0 && item.name)
 }
 
-function findExactPatientMatch(candidates: PatientRecord[], draft: PatientDraft): PatientRecord | null {
+function findExactPatientMatch(
+  candidates: PatientRecord[],
+  draft: PatientDraft
+): PatientRecord | null {
   const telephone = normalizePhone(draft.telephone)
   const name = normalizeWhitespace(draft.name).toLowerCase()
 
   return (
-    candidates.find((candidate) => telephone && normalizePhone(candidate.telephone) === telephone) ||
-    candidates.find((candidate) => name && normalizeWhitespace(candidate.name).toLowerCase() === name) ||
+    candidates.find(
+      (candidate) => telephone && normalizePhone(candidate.telephone) === telephone
+    ) ||
+    candidates.find(
+      (candidate) => name && normalizeWhitespace(candidate.name).toLowerCase() === name
+    ) ||
     null
   )
 }
@@ -340,7 +410,10 @@ async function upsertPatient(draft: PatientDraft): Promise<PatientRecord> {
   return normalizePatient(created)
 }
 
-async function createBill(payload: BillingSubmission, patientId: number): Promise<Record<string, unknown>> {
+async function createBill(
+  payload: BillingSubmission,
+  patientId: number
+): Promise<Record<string, unknown>> {
   return apiRequest<Record<string, unknown>>('/api/public/bills', {
     method: 'POST',
     body: JSON.stringify({
@@ -418,8 +491,10 @@ async function submitBilling(payload: BillingSubmission): Promise<BillingResult>
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+    width: 1440,
+    height: 960,
+    minWidth: 1300,
+    minHeight: 820,
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
@@ -434,52 +509,81 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    handlePromiseError(shell.openExternal(details.url), 'Open external link', {
+      title: 'Unable to open link',
+      window: mainWindow
+    })
     return { action: 'deny' }
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    handlePromiseError(
+      mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']),
+      'Load renderer URL',
+      {
+        title: 'Renderer failed to load',
+        window: mainWindow
+      }
+    )
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    handlePromiseError(
+      mainWindow.loadFile(join(__dirname, '../renderer/index.html')),
+      'Load renderer file',
+      {
+        title: 'Renderer failed to load',
+        window: mainWindow
+      }
+    )
   }
 }
 
-app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.electron')
-
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
-  })
-
-  ipcMain.on('ping', () => console.log('pong'))
-
-  ipcMain.handle('user:create', async (_, data) => {
-    return prisma.user.create({ data })
-  })
-
-  ipcMain.handle('user:list', async () => {
-    return prisma.user.findMany()
-  })
-
-  ipcMain.handle('patients:search', async (_, query: string) => {
-    return searchPatients(query)
-  })
-
-  ipcMain.handle('doctors:list', async () => {
-    return listDoctors()
-  })
-
-  ipcMain.handle('billing:submit', async (_, payload: BillingSubmission) => {
-    return submitBilling(payload)
-  })
-
-  createWindow()
-
-  app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
+process.on('unhandledRejection', (reason) => {
+  reportAppError('Unhandled promise rejection', reason)
 })
+
+process.on('uncaughtException', (error) => {
+  reportAppError('Uncaught exception', error)
+})
+
+handlePromiseError(
+  app.whenReady().then(() => {
+    electronApp.setAppUserModelId('com.electron')
+
+    app.on('browser-window-created', (_, window) => {
+      optimizer.watchWindowShortcuts(window)
+    })
+
+    ipcMain.on('ping', () => console.log('pong'))
+
+    ipcMain.handle('user:create', async (_, data) => {
+      return prisma.user.create({ data })
+    })
+
+    ipcMain.handle('user:list', async () => {
+      return prisma.user.findMany()
+    })
+
+    ipcMain.handle('patients:search', async (_, query: string) => {
+      return searchPatients(query)
+    })
+
+    ipcMain.handle('doctors:list', async () => {
+      return listDoctors()
+    })
+
+    ipcMain.handle('billing:submit', async (_, payload: BillingSubmission) => {
+      return submitBilling(payload)
+    })
+
+    createWindow()
+
+    app.on('activate', function () {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
+  }),
+  'Initialize application',
+  { title: 'App startup failed' }
+)
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
