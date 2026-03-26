@@ -1,18 +1,64 @@
 import { config as loadEnv } from 'dotenv'
+import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
-
-loadEnv()
 
 // Disable Autofill in DevTools to avoid noise in the console
 app.commandLine.appendSwitch('disable-features', 'AutofillServerCommunication')
 // More specific switch if the above isn't enough
 app.commandLine.appendSwitch('disable-autofill')
 
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { PrismaClient } from '../generated/prisma/client'
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
+
+const RUNTIME_CONFIG_FILE_NAME = 'config.env'
+const DEFAULT_RUNTIME_CONFIG = [
+  '# Runtime configuration for 5th-electron-app',
+  '# Development uses the project .env file.',
+  '# Packaged builds on Windows create/read this file from the app userData folder.',
+  'API_BASE_URL=http://test-b.local',
+  'API_KEY=',
+  'API_REFERER=http://test-b.local',
+  'API_AUTH_TOKEN=',
+  'PRINTER_BASE_URL=http://0.0.0.0:5000',
+  ''
+].join('\n')
+
+let createdRuntimeConfigPath: string | null = null
+
+function getRuntimeConfigPath(): string {
+  return join(app.getPath('userData'), RUNTIME_CONFIG_FILE_NAME)
+}
+
+function getConfigSourceLabel(): string {
+  return app.isPackaged ? getRuntimeConfigPath() : '.env'
+}
+
+function ensureRuntimeConfigFile(): void {
+  if (!app.isPackaged) return
+
+  const runtimeConfigPath = getRuntimeConfigPath()
+  if (existsSync(runtimeConfigPath)) return
+
+  mkdirSync(dirname(runtimeConfigPath), { recursive: true })
+  writeFileSync(runtimeConfigPath, DEFAULT_RUNTIME_CONFIG, 'utf8')
+  createdRuntimeConfigPath = runtimeConfigPath
+  console.warn(`Created runtime config template at ${runtimeConfigPath}`)
+}
+
+function loadRuntimeEnv(): void {
+  if (app.isPackaged) {
+    ensureRuntimeConfigFile()
+    loadEnv({ path: getRuntimeConfigPath() })
+    return
+  }
+
+  loadEnv()
+}
+
+loadRuntimeEnv()
 
 const dbPath = join(app.getPath('userData'), 'dev.db')
 const adapter = new PrismaBetterSqlite3({ url: dbPath })
@@ -160,7 +206,9 @@ function getApiConfig(): {
     .map(([name]) => name)
 
   if (missing.length > 0) {
-    throw new Error(`Missing API configuration in .env: ${missing.join(', ')}`)
+    throw new Error(
+      `Missing API configuration in ${getConfigSourceLabel()}: ${missing.join(', ')}`
+    )
   }
 
   return {
@@ -175,7 +223,7 @@ function getPrinterBaseUrl(): string {
   const baseUrl = process.env['PRINTER_BASE_URL']?.trim()
 
   if (!baseUrl) {
-    throw new Error('Missing printer configuration in .env: PRINTER_BASE_URL')
+    throw new Error(`Missing printer configuration in ${getConfigSourceLabel()}: PRINTER_BASE_URL`)
   }
 
   return baseUrl.replace(/\/+$/, '')
@@ -506,6 +554,17 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+
+    if (createdRuntimeConfigPath) {
+      broadcastAppNotification(
+        {
+          level: 'warning',
+          title: 'Configuration required',
+          message: `Created ${createdRuntimeConfigPath}. Fill in the API settings and restart the app.`
+        },
+        mainWindow
+      )
+    }
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {

@@ -74,7 +74,11 @@ type RendererApi = {
     doctorName: string
     paymentType: 'cash' | 'card' | 'online'
     items: PrintLineItem[]
-  }) => Promise<{ patient: PatientRecord; bill: Record<string, unknown>; print: Record<string, unknown> }>
+  }) => Promise<{
+    patient: PatientRecord
+    bill: Record<string, unknown>
+    print: Record<string, unknown>
+  }>
   onAppNotification: (callback: (notification: AppNotification) => void) => () => void
 }
 
@@ -332,11 +336,7 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     const query =
-      activeField === 'name'
-        ? patient.name
-        : activeField === 'telephone'
-          ? patient.telephone
-          : ''
+      activeField === 'name' ? patient.name : activeField === 'telephone' ? patient.telephone : ''
     if (!activeField || query.trim().length < 2) {
       setSearchResults([])
       setSearchError('')
@@ -663,7 +663,10 @@ function App(): React.JSX.Element {
                       <select
                         value={opd.doctorId}
                         onChange={(event) =>
-                          setOpd((current) => ({ ...current, doctorId: Number(event.target.value) }))
+                          setOpd((current) => ({
+                            ...current,
+                            doctorId: Number(event.target.value)
+                          }))
                         }
                         className={selectClassName}
                         disabled={doctorLoading || currentDoctorOptions.length === 0}
