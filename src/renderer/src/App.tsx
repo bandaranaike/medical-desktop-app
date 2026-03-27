@@ -15,6 +15,7 @@ interface PatientInfo {
   name: string
   telephone: string
   email: string
+  dateOfBirth: string
   age: string
   gender: string
   address: string
@@ -26,6 +27,7 @@ interface PatientRecord {
   name: string
   email: string
   telephone: string
+  dateOfBirth: string
   age: string
   address: string
   registrationNo: string
@@ -61,6 +63,36 @@ interface AppNotification {
   message: string
 }
 
+interface BookingRecord {
+  billId: number
+  reference: string
+  bookingNumber: number | null
+  date: string
+  doctorName: string
+  doctorSpecialty: string
+}
+
+interface StoredFieldDefaults {
+  opd: Record<number, { consultationFee: string; medicineFee: string }>
+  channeling: Record<number, { consultationFee: string; bookingFee: string }>
+  dental: Record<number, { registrationFee: string }>
+}
+
+interface RecentServicePreset {
+  key: string
+  operation: 'dental' | 'others'
+  label: string
+  amount: string
+  doctorId: number | null
+  useCount: number
+  lastUsedAt: string
+}
+
+interface FormPreferences {
+  fieldDefaults: StoredFieldDefaults
+  recentServices: RecentServicePreset[]
+}
+
 type RendererApi = {
   searchPatients: (query: string) => Promise<PatientRecord[]>
   listDoctors: () => Promise<DoctorOption[]>
@@ -79,6 +111,21 @@ type RendererApi = {
     bill: Record<string, unknown>
     print: Record<string, unknown>
   }>
+  submitBooking: (payload: {
+    patient: PatientInfo
+    doctorId: number
+    doctorType: 'specialist' | 'dental'
+    date: string
+  }) => Promise<BookingRecord>
+  printReceipt: (payload: {
+    billId: number
+    billReference: string
+    patientName: string
+    doctorName: string
+    paymentType: 'cash' | 'card' | 'online'
+    items: PrintLineItem[]
+    total: number
+  }) => Promise<Record<string, unknown>>
   onAppNotification: (callback: (notification: AppNotification) => void) => () => void
 }
 
@@ -88,6 +135,15 @@ const selectClassName =
   'flex h-9 w-full rounded-md border border-border/90 bg-white/[0.035] px-3 text-sm text-white outline-none transition focus:border-primary/70 focus:ring-2 focus:ring-primary/20'
 const softButtonClassName =
   'h-8 border-border/90 bg-white/[0.04] text-xs text-slate-200 transition-all hover:border-primary/35 hover:bg-primary/10 hover:text-white'
+const FORM_PREFERENCES_KEY = 'medical-center-form-preferences-v1'
+const EMPTY_PREFERENCES: FormPreferences = {
+  fieldDefaults: {
+    opd: {},
+    channeling: {},
+    dental: {}
+  },
+  recentServices: []
+}
 
 const makeRow = (label = '', amount = ''): ChargeRow => ({
   id: Math.random().toString(36).slice(2, 10),
@@ -110,6 +166,120 @@ function splitDental(amount: number, doctor?: DoctorOption): { inHouse: number; 
       ? Math.min(doctor.dentalSplitValue, amount)
       : amount * (doctor.dentalSplitValue / 100)
   return { inHouse, referred: Math.max(amount - inHouse, 0) }
+}
+
+function normalizePatientName(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+function normalizePatientPhone(value: string): string {
+  return value.replace(/\D/g, '')
+}
+
+function parseDisplayDate(value: string): Date | null {
+  const match = value.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (!match) return null
+
+  const [, day, month, year] = match
+  const date = new Date(Number(year), Number(month) - 1, Number(day))
+
+  if (Number.isNaN(date.getTime())) return null
+  if (date.getFullYear() !== Number(year)) return null
+  if (date.getMonth() !== Number(month) - 1) return null
+  if (date.getDate() !== Number(day)) return null
+
+  return date
+}
+
+function formatDisplayDate(date: Date): string {
+  const day = String(date.getDate()).padStart(2, '0')
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const year = String(date.getFullYear())
+  return `${day}/${month}/${year}`
+}
+
+function calculateAgeFromDate(value: string): string {
+  const birthDate = parseDisplayDate(value)
+  if (!birthDate) return ''
+
+  const today = new Date()
+  let age = today.getFullYear() - birthDate.getFullYear()
+  const monthDelta = today.getMonth() - birthDate.getMonth()
+
+  if (monthDelta < 0 || (monthDelta === 0 && today.getDate() < birthDate.getDate())) {
+    age -= 1
+  }
+
+  return age >= 0 ? String(age) : ''
+}
+
+function calculateDateOfBirthFromAge(value: string): string {
+  const parsedAge = Number(value)
+  if (!Number.isFinite(parsedAge) || parsedAge < 0) return ''
+
+  const today = new Date()
+  const birthDate = new Date(today.getFullYear() - parsedAge, today.getMonth(), today.getDate())
+  return formatDisplayDate(birthDate)
+}
+
+function loadFormPreferences(): FormPreferences {
+  if (typeof window === 'undefined') return EMPTY_PREFERENCES
+
+  try {
+    const raw = window.localStorage.getItem(FORM_PREFERENCES_KEY)
+    if (!raw) return EMPTY_PREFERENCES
+
+    const parsed = JSON.parse(raw) as Partial<FormPreferences>
+    return {
+      fieldDefaults: {
+        opd: parsed.fieldDefaults?.opd ?? {},
+        channeling: parsed.fieldDefaults?.channeling ?? {},
+        dental: parsed.fieldDefaults?.dental ?? {}
+      },
+      recentServices: Array.isArray(parsed.recentServices) ? parsed.recentServices : []
+    }
+  } catch {
+    return EMPTY_PREFERENCES
+  }
+}
+
+function saveFormPreferences(preferences: FormPreferences): void {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.localStorage.setItem(FORM_PREFERENCES_KEY, JSON.stringify(preferences))
+  } catch {
+    // Ignore local persistence errors and keep the form usable.
+  }
+}
+
+function upsertRecentServices(
+  current: RecentServicePreset[],
+  incoming: RecentServicePreset[]
+): RecentServicePreset[] {
+  const next = [...current]
+
+  for (const preset of incoming) {
+    const existingIndex = next.findIndex((item) => item.key === preset.key)
+    if (existingIndex >= 0) {
+      const existing = next[existingIndex]
+      next[existingIndex] = {
+        ...existing,
+        ...preset,
+        useCount: Math.max(existing.useCount + 1, preset.useCount)
+      }
+      continue
+    }
+
+    next.push(preset)
+  }
+
+  return next
+    .sort((left, right) => {
+      if (left.lastUsedAt === right.lastUsedAt) return right.useCount - left.useCount
+      return right.lastUsedAt.localeCompare(left.lastUsedAt)
+    })
+    .slice(0, 12)
 }
 
 function operationDoctorType(operation: OperationType): string {
@@ -153,6 +323,24 @@ function billIdLabel(bill: Record<string, unknown>): string {
   if (typeof bill.bill_id === 'number') return `Bill #${bill.bill_id} created`
   if (typeof bill.uuid === 'string') return `Bill ${bill.uuid} created`
   return 'Bill created successfully'
+}
+
+function bookingDoctorTypeForOperation(
+  operation: OperationType
+): 'specialist' | 'dental' | null {
+  if (operation === 'channeling') return 'specialist'
+  if (operation === 'dental') return 'dental'
+  return null
+}
+
+function bookingLabel(booking: BookingRecord): string {
+  if (booking.bookingNumber) {
+    return `Booking #${booking.bookingNumber} saved`
+  }
+  if (booking.reference) {
+    return `Booking ${booking.reference} saved`
+  }
+  return 'Booking saved successfully'
 }
 
 function makeToast(level: ToastTone, title: string, message: string): ToastItem {
@@ -236,6 +424,7 @@ function SearchBox({
 function App(): React.JSX.Element {
   const api = window.api as RendererApi
   const [activeOperation, setActiveOperation] = useState<OperationType>('opd')
+  const [isBooking, setIsBooking] = useState(false)
   const [shift, setShift] = useState<Shift>('Morning')
   const [billDate, setBillDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [patient, setPatient] = useState<PatientInfo>({
@@ -243,11 +432,17 @@ function App(): React.JSX.Element {
     name: '',
     telephone: '',
     email: '',
+    dateOfBirth: '',
     age: '',
     gender: 'Male',
     address: '',
     registrationNo: ''
   })
+  const [selectedPatientSnapshot, setSelectedPatientSnapshot] = useState<{
+    id: number
+    name: string
+    telephone: string
+  } | null>(null)
   const [activeField, setActiveField] = useState<SearchField | null>(null)
   const [searchResults, setSearchResults] = useState<PatientRecord[]>([])
   const [searchError, setSearchError] = useState('')
@@ -258,6 +453,11 @@ function App(): React.JSX.Element {
     status: 'idle' | 'loading' | 'success' | 'error'
     message: string
   }>({ status: 'idle', message: '' })
+  const [formPreferences, setFormPreferences] = useState<FormPreferences>(() => loadFormPreferences())
+  const [savedBooking, setSavedBooking] = useState<{
+    record: BookingRecord
+    draftSignature: string
+  } | null>(null)
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [opd, setOpd] = useState({ doctorId: 0, consultationFee: '', medicineFee: '' })
   const [channeling, setChanneling] = useState({
@@ -335,6 +535,41 @@ function App(): React.JSX.Element {
   }, [doctors])
 
   useEffect(() => {
+    if (!opd.doctorId) return
+    const defaults = formPreferences.fieldDefaults.opd[opd.doctorId]
+    if (!defaults) return
+
+    setOpd((current) => ({
+      ...current,
+      consultationFee: current.consultationFee || defaults.consultationFee,
+      medicineFee: current.medicineFee || defaults.medicineFee
+    }))
+  }, [formPreferences.fieldDefaults.opd, opd.doctorId])
+
+  useEffect(() => {
+    if (!channeling.doctorId) return
+    const defaults = formPreferences.fieldDefaults.channeling[channeling.doctorId]
+    if (!defaults) return
+
+    setChanneling((current) => ({
+      ...current,
+      consultationFee: current.consultationFee || defaults.consultationFee,
+      bookingFee: current.bookingFee || defaults.bookingFee
+    }))
+  }, [channeling.doctorId, formPreferences.fieldDefaults.channeling])
+
+  useEffect(() => {
+    if (!dental.doctorId) return
+    const defaults = formPreferences.fieldDefaults.dental[dental.doctorId]
+    if (!defaults) return
+
+    setDental((current) => ({
+      ...current,
+      registrationFee: current.registrationFee || defaults.registrationFee
+    }))
+  }, [dental.doctorId, formPreferences.fieldDefaults.dental])
+
+  useEffect(() => {
     const query =
       activeField === 'name' ? patient.name : activeField === 'telephone' ? patient.telephone : ''
     if (!activeField || query.trim().length < 2) {
@@ -366,16 +601,85 @@ function App(): React.JSX.Element {
     }
   }
 
+  const handlePatientIdentityFieldChange = (key: 'name' | 'telephone', value: string): void => {
+    const nextPatient = { ...patient, [key]: value }
+    const selectedName = normalizePatientName(selectedPatientSnapshot?.name ?? '')
+    const selectedTelephone = normalizePatientPhone(selectedPatientSnapshot?.telephone ?? '')
+    const nextName = normalizePatientName(nextPatient.name)
+    const nextTelephone = normalizePatientPhone(nextPatient.telephone)
+    const movedAwayFromSelectedPatient =
+      !!selectedPatientSnapshot &&
+      !!nextName &&
+      !!nextTelephone &&
+      nextName !== selectedName &&
+      nextTelephone !== selectedTelephone
+
+    setPatient({
+      ...nextPatient,
+      id: movedAwayFromSelectedPatient ? null : nextPatient.id
+    })
+
+    if (movedAwayFromSelectedPatient) {
+      setSelectedPatientSnapshot(null)
+      setSearchResults([])
+      setActiveField(null)
+    }
+
+    if (submitState.status !== 'idle') {
+      setSubmitState({ status: 'idle', message: '' })
+    }
+  }
+
+  const setPatientDateOfBirth = (value: string): void => {
+    setPatient((current) => {
+      const next = { ...current, dateOfBirth: value }
+      const calculatedAge = calculateAgeFromDate(value)
+
+      if (calculatedAge) {
+        next.age = calculatedAge
+      }
+
+      return next
+    })
+
+    if (submitState.status !== 'idle') {
+      setSubmitState({ status: 'idle', message: '' })
+    }
+  }
+
+  const setPatientAge = (value: string): void => {
+    setPatient((current) => {
+      const next = { ...current, age: value }
+      const calculatedDateOfBirth = calculateDateOfBirthFromAge(value)
+
+      if (calculatedDateOfBirth) {
+        next.dateOfBirth = calculatedDateOfBirth
+      }
+
+      return next
+    })
+
+    if (submitState.status !== 'idle') {
+      setSubmitState({ status: 'idle', message: '' })
+    }
+  }
+
   const fillPatient = (user: PatientRecord): void => {
     setPatient({
       id: user.id,
       name: user.name ?? '',
       telephone: user.telephone ?? '',
       email: user.email ?? '',
+      dateOfBirth: user.dateOfBirth ?? '',
       age: user.age ?? '',
       address: user.address ?? '',
       registrationNo: user.registrationNo ?? '',
       gender: user.gender ? user.gender[0].toUpperCase() + user.gender.slice(1) : 'Male'
+    })
+    setSelectedPatientSnapshot({
+      id: user.id,
+      name: user.name ?? '',
+      telephone: user.telephone ?? ''
     })
     setSearchResults([])
     setSearchError('')
@@ -415,6 +719,12 @@ function App(): React.JSX.Element {
               label: row.label || 'Additional Charge',
               value: num(row.amount)
             }))
+  const printableItems = summary
+    .filter((item) => item.value > 0)
+    .map<PrintLineItem>((item) => ({
+      name: item.label,
+      price: item.value.toFixed(2)
+    }))
   const total = summary.reduce((sum, item) => sum + item.value, 0)
   const currentDoctorId =
     activeOperation === 'opd'
@@ -426,6 +736,140 @@ function App(): React.JSX.Element {
           : othersDoctorId
   const currentDoctor = doctors.find((item) => item.id === currentDoctorId)
   const currentDoctorOptions = doctorOptionsForOperation(doctors, activeOperation)
+  const bookingDoctorType = bookingDoctorTypeForOperation(activeOperation)
+  const recentServicePresets = formPreferences.recentServices.filter(
+    (item) => item.operation === 'dental' || item.operation === 'others'
+  )
+  const bookingDraftSignature = JSON.stringify({
+    isBooking,
+    activeOperation,
+    billDate,
+    patient,
+    currentDoctorId,
+    printableItems,
+    total
+  })
+
+  const persistFormPreferences = (updater: (current: FormPreferences) => FormPreferences): void => {
+    setFormPreferences((current) => {
+      const next = updater(current)
+      saveFormPreferences(next)
+      return next
+    })
+  }
+
+  const rememberCurrentDefaults = (): void => {
+    persistFormPreferences((current) => {
+      const next: FormPreferences = {
+        fieldDefaults: {
+          opd: { ...current.fieldDefaults.opd },
+          channeling: { ...current.fieldDefaults.channeling },
+          dental: { ...current.fieldDefaults.dental }
+        },
+        recentServices: current.recentServices
+      }
+
+      if (opd.doctorId) {
+        next.fieldDefaults.opd[opd.doctorId] = {
+          consultationFee: opd.consultationFee,
+          medicineFee: opd.medicineFee
+        }
+      }
+
+      if (channeling.doctorId) {
+        next.fieldDefaults.channeling[channeling.doctorId] = {
+          consultationFee: channeling.consultationFee,
+          bookingFee: channeling.bookingFee
+        }
+      }
+
+      if (dental.doctorId) {
+        next.fieldDefaults.dental[dental.doctorId] = {
+          registrationFee: dental.registrationFee
+        }
+      }
+
+      const timestamp = new Date().toISOString()
+      const servicePresets: RecentServicePreset[] = [
+        ...dental.rows
+          .filter((row) => row.label.trim() && num(row.amount) > 0)
+          .map((row) => ({
+            key: `dental:${dental.doctorId || 'any'}:${row.label.trim().toLowerCase()}`,
+            operation: 'dental' as const,
+            label: row.label.trim(),
+            amount: row.amount,
+            doctorId: dental.doctorId || null,
+            useCount: 1,
+            lastUsedAt: timestamp
+          })),
+        ...others
+          .filter((row) => row.label.trim() && num(row.amount) > 0)
+          .map((row) => ({
+            key: `others:${othersDoctorId || 'any'}:${row.label.trim().toLowerCase()}`,
+            operation: 'others' as const,
+            label: row.label.trim(),
+            amount: row.amount,
+            doctorId: othersDoctorId || null,
+            useCount: 1,
+            lastUsedAt: timestamp
+          }))
+      ]
+
+      next.recentServices = upsertRecentServices(current.recentServices, servicePresets)
+      return next
+    })
+  }
+
+  const applyRecentServicePreset = (preset: RecentServicePreset): void => {
+    if (preset.operation === 'dental') {
+      setActiveOperation('dental')
+      setDental((current) => {
+        const alreadyExists = current.rows.some(
+          (row) => row.label.trim().toLowerCase() === preset.label.trim().toLowerCase()
+        )
+        if (alreadyExists) {
+          return {
+            ...current,
+            rows: current.rows.map((row) =>
+              row.label.trim().toLowerCase() === preset.label.trim().toLowerCase()
+                ? { ...row, amount: row.amount || preset.amount }
+                : row
+            )
+          }
+        }
+
+        return {
+          ...current,
+          doctorId: preset.doctorId || current.doctorId,
+          rows: [makeRow(preset.label, preset.amount), ...current.rows]
+        }
+      })
+      return
+    }
+
+    setActiveOperation('others')
+    setOthersDoctorId((current) => preset.doctorId || current)
+    setOthers((current) => {
+      const alreadyExists = current.some(
+        (row) => row.label.trim().toLowerCase() === preset.label.trim().toLowerCase()
+      )
+      if (alreadyExists) {
+        return current.map((row) =>
+          row.label.trim().toLowerCase() === preset.label.trim().toLowerCase()
+            ? { ...row, amount: row.amount || preset.amount }
+            : row
+        )
+      }
+
+      return [makeRow(preset.label, preset.amount), ...current]
+    })
+  }
+
+  useEffect(() => {
+    if (!savedBooking) return
+    if (savedBooking.draftSignature === bookingDraftSignature) return
+    setSavedBooking(null)
+  }, [bookingDraftSignature, savedBooking])
 
   const handleSubmit = async (): Promise<void> => {
     if (!patient.name.trim()) {
@@ -462,13 +906,6 @@ function App(): React.JSX.Element {
     setSubmitState({ status: 'loading', message: 'Saving patient and creating bill...' })
 
     try {
-      const printItems = summary
-        .filter((item) => item.value > 0)
-        .map<PrintLineItem>((item) => ({
-          name: item.label,
-          price: item.value.toFixed(2)
-        }))
-
       const result = await api.submitBilling({
         patient,
         doctorId: currentDoctorId,
@@ -478,10 +915,12 @@ function App(): React.JSX.Element {
         date: billDate,
         doctorName: currentDoctor?.name ?? '',
         paymentType: 'cash',
-        items: printItems
+        items: printableItems
       })
 
       fillPatient(result.patient)
+      rememberCurrentDefaults()
+      setSavedBooking(null)
       setSubmitState({ status: 'success', message: billIdLabel(result.bill) })
       pushToast('success', 'Bill created', billIdLabel(result.bill))
     } catch (error) {
@@ -491,6 +930,107 @@ function App(): React.JSX.Element {
         message
       })
       pushToast('error', 'Billing failed', message)
+    }
+  }
+
+  const handleSaveBooking = async (): Promise<void> => {
+    if (!patient.name.trim()) {
+      const message = 'Patient name is required.'
+      setSubmitState({ status: 'error', message })
+      pushToast('warning', 'Missing patient name', message)
+      return
+    }
+    if (!patient.telephone.trim()) {
+      const message = 'Patient telephone is required.'
+      setSubmitState({ status: 'error', message })
+      pushToast('warning', 'Missing telephone number', message)
+      return
+    }
+    if (!patient.age.trim() || Number(patient.age) <= 0) {
+      const message = 'Patient age must be a valid number.'
+      setSubmitState({ status: 'error', message })
+      pushToast('warning', 'Invalid patient age', message)
+      return
+    }
+    if (!currentDoctorId) {
+      const message = 'Select a doctor before saving the booking.'
+      setSubmitState({ status: 'error', message })
+      pushToast('warning', 'Doctor required', message)
+      return
+    }
+    if (!bookingDoctorType) {
+      const message = 'Booking mode is currently available for Channeling and Dental visits only.'
+      setSubmitState({ status: 'error', message })
+      pushToast('warning', 'Booking not supported here', message)
+      return
+    }
+
+    setSubmitState({ status: 'loading', message: 'Saving booking...' })
+
+    try {
+      const booking = await api.submitBooking({
+        patient,
+        doctorId: currentDoctorId,
+        doctorType: bookingDoctorType,
+        date: billDate
+      })
+
+      rememberCurrentDefaults()
+      setSavedBooking({
+        record: booking,
+        draftSignature: bookingDraftSignature
+      })
+      setSubmitState({ status: 'success', message: bookingLabel(booking) })
+      pushToast('success', 'Booking saved', bookingLabel(booking))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save booking'
+      setSubmitState({
+        status: 'error',
+        message
+      })
+      pushToast('error', 'Booking failed', message)
+    }
+  }
+
+  const handlePrintBooking = async (): Promise<void> => {
+    if (!savedBooking) {
+      const message = 'Save the booking before printing the bill.'
+      setSubmitState({ status: 'error', message })
+      pushToast('warning', 'Booking not saved', message)
+      return
+    }
+    if (total <= 0) {
+      const message = 'Enter at least one bill amount before printing.'
+      setSubmitState({ status: 'error', message })
+      pushToast('warning', 'Missing bill amount', message)
+      return
+    }
+
+    setSubmitState({ status: 'loading', message: 'Printing saved booking bill...' })
+
+    try {
+      await api.printReceipt({
+        billId: savedBooking.record.billId,
+        billReference: savedBooking.record.reference,
+        patientName: patient.name,
+        doctorName: currentDoctor?.name ?? savedBooking.record.doctorName,
+        paymentType: 'cash',
+        items: printableItems,
+        total
+      })
+
+      const message = savedBooking.record.reference
+        ? `Printed booking bill ${savedBooking.record.reference}`
+        : 'Printed saved booking bill'
+      setSubmitState({ status: 'success', message })
+      pushToast('success', 'Booking bill printed', message)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to print booking bill'
+      setSubmitState({
+        status: 'error',
+        message
+      })
+      pushToast('error', 'Booking print failed', message)
     }
   }
 
@@ -510,11 +1050,27 @@ function App(): React.JSX.Element {
                   Simple billing flow for clinic operators
                 </h1>
                 <p className="text-xs text-slate-400">
-                  Search patient details, select visit type, enter charges, and generate bill.
+                  Search patient details, select visit type, enter charges, and generate a bill or save a booking.
                 </p>
               </div>
             </div>
             <div className="flex flex-wrap gap-3">
+              <label className="flex min-w-40 items-center gap-2 rounded-lg border border-border/90 bg-[#16202c] px-3 py-1.5 text-xs text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={isBooking}
+                  onChange={(event) => setIsBooking(event.target.checked)}
+                  className="h-4 w-4 rounded border-border/90 bg-[#0f161f] text-primary focus:ring-primary/30"
+                />
+                <span>
+                  <span className="block text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Booking
+                  </span>
+                  <span className="block text-xs text-slate-200">
+                    Save this visit as a booking
+                  </span>
+                </span>
+              </label>
               <div className="min-w-35 rounded-lg border border-border/90 bg-[#16202c] px-3 py-1.5">
                 <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
                   Date
@@ -572,7 +1128,7 @@ function App(): React.JSX.Element {
                     setSearchResults([])
                     setSearchError('')
                   }}
-                  onChange={(value) => setPatientField('name', value)}
+                  onChange={(value) => handlePatientIdentityFieldChange('name', value)}
                   onSelect={fillPatient}
                 />
                 <SearchBox
@@ -588,9 +1144,18 @@ function App(): React.JSX.Element {
                     setSearchResults([])
                     setSearchError('')
                   }}
-                  onChange={(value) => setPatientField('telephone', value)}
+                  onChange={(value) => handlePatientIdentityFieldChange('telephone', value)}
                   onSelect={fillPatient}
                 />
+                <div>
+                  <Label>Registration No</Label>
+                  <Input
+                    value={patient.registrationNo}
+                    onChange={(event) => setPatientField('registrationNo', event.target.value)}
+                    placeholder="Registration number"
+                    className={inputClassName}
+                  />
+                </div>
                 <div>
                   <Label>Email</Label>
                   <Input
@@ -600,23 +1165,22 @@ function App(): React.JSX.Element {
                     className={inputClassName}
                   />
                 </div>
-                <div>
-                  <Label>Age</Label>
-                  <Input
-                    value={patient.age}
-                    onChange={(event) => setPatientField('age', event.target.value)}
-                    placeholder="Age"
-                    className={inputClassName}
-                  />
-                </div>
-                <div>
-                  <Label>Registration No</Label>
-                  <Input
-                    value={patient.registrationNo}
-                    onChange={(event) => setPatientField('registrationNo', event.target.value)}
-                    placeholder="Registration number"
-                    className={inputClassName}
-                  />
+                <div className="md:col-span-2 xl:col-span-2">
+                  <Label>Date Of Birth / Age</Label>
+                  <div className="grid gap-3 md:grid-cols-[minmax(0,3fr)_minmax(0,1fr)]">
+                    <Input
+                      value={patient.dateOfBirth}
+                      onChange={(event) => setPatientDateOfBirth(event.target.value)}
+                      placeholder="DD/MM/YYYY"
+                      className={inputClassName}
+                    />
+                    <Input
+                      value={patient.age}
+                      onChange={(event) => setPatientAge(event.target.value)}
+                      placeholder="Age"
+                      className={inputClassName}
+                    />
+                  </div>
                 </div>
                 <div>
                   <Label>Gender</Label>
@@ -656,6 +1220,32 @@ function App(): React.JSX.Element {
             <SurfaceCard eyebrow="Visit Type" title="Billing operation">
               <div className="space-y-4">
                 <OperationTabs value={activeOperation} onChange={setActiveOperation} />
+                {recentServicePresets.length > 0 ? (
+                  <div className="space-y-2 rounded-lg border border-border/90 bg-white/2 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                          Recent Services
+                        </p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          Tap a recent service to bring it back into the current form with its last used value.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {recentServicePresets.map((preset) => (
+                        <button
+                          key={preset.key}
+                          type="button"
+                          onClick={() => applyRecentServicePreset(preset)}
+                          className="rounded-full border border-border/90 bg-[#111923] px-3 py-1.5 text-xs text-slate-100 transition hover:border-primary/35 hover:bg-primary/10 hover:text-white"
+                        >
+                          {preset.label} · {money(num(preset.amount))}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {activeOperation === 'opd' ? (
                   <div className="grid gap-x-4 gap-y-3 lg:grid-cols-2">
                     <div className="lg:col-span-2">
@@ -998,6 +1588,10 @@ function App(): React.JSX.Element {
                     <span className="text-slate-100">{patient.name || 'Walk-in'}</span>
                   </div>
                   <div className="flex items-center justify-between text-[13px]">
+                    <span className="text-slate-400 font-medium">Mode</span>
+                    <span className="text-slate-100">{isBooking ? 'Booking' : 'Bill'}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[13px]">
                     <span className="text-slate-400 font-medium">Shift</span>
                     <span className="text-slate-100">{shift}</span>
                   </div>
@@ -1056,22 +1650,69 @@ function App(): React.JSX.Element {
                     {submitState.message}
                   </div>
                 ) : null}
+                {isBooking && savedBooking ? (
+                  <div className="rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-xs text-primary">
+                    Saved booking
+                    {savedBooking.record.bookingNumber
+                      ? ` #${savedBooking.record.bookingNumber}`
+                      : ''}
+                    {savedBooking.record.reference ? ` • ${savedBooking.record.reference}` : ''}
+                  </div>
+                ) : null}
+                {isBooking && !bookingDoctorType ? (
+                  <div className="rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                    Booking mode currently supports Channeling and Dental visits with the available public API.
+                  </div>
+                ) : null}
                 <div className="grid gap-2">
-                  <Button
-                    type="button"
-                    onClick={() => void handleSubmit()}
-                    disabled={
-                      submitState.status === 'loading' ||
-                      doctorLoading ||
-                      doctors.length === 0 ||
-                      currentDoctorOptions.length === 0
-                    }
-                    className="h-10 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-[0_14px_28px_rgba(34,211,238,0.22)] hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
-                  >
-                    {submitState.status === 'loading'
-                      ? 'Saving And Creating Bill...'
-                      : 'Generate And Print Bill'}
-                  </Button>
+                  {isBooking ? (
+                    <>
+                      <Button
+                        type="button"
+                        onClick={() => void handleSaveBooking()}
+                        disabled={
+                          submitState.status === 'loading' ||
+                          doctorLoading ||
+                          doctors.length === 0 ||
+                          currentDoctorOptions.length === 0
+                        }
+                        className="h-10 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-[0_14px_28px_rgba(34,211,238,0.22)] hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
+                      >
+                        {submitState.status === 'loading' ? 'Saving Booking...' : 'Save Booking'}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void handlePrintBooking()}
+                        disabled={
+                          submitState.status === 'loading' ||
+                          !savedBooking ||
+                          total <= 0
+                        }
+                        className={cn(
+                          'h-10 rounded-md border-border/90 bg-white/[0.04] text-xs font-semibold text-slate-100 hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-60'
+                        )}
+                      >
+                        Print Bill
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      type="button"
+                      onClick={() => void handleSubmit()}
+                      disabled={
+                        submitState.status === 'loading' ||
+                        doctorLoading ||
+                        doctors.length === 0 ||
+                        currentDoctorOptions.length === 0
+                      }
+                      className="h-10 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-[0_14px_28px_rgba(34,211,238,0.22)] hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {submitState.status === 'loading'
+                        ? 'Saving And Creating Bill...'
+                        : 'Generate And Print Bill'}
+                    </Button>
+                  )}
                 </div>
               </div>
             </SurfaceCard>

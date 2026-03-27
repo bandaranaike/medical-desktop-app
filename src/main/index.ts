@@ -72,6 +72,7 @@ type PatientDraft = {
   name: string
   telephone: string
   email: string
+  dateOfBirth: string
   age: string
   gender: string
   address: string
@@ -83,6 +84,7 @@ type PatientRecord = {
   name: string
   telephone: string
   email: string
+  dateOfBirth: string
   age: string
   gender: string
   address: string
@@ -116,10 +118,39 @@ type BillingSubmission = {
   }>
 }
 
+type BookingSubmission = {
+  patient: PatientDraft
+  doctorId: number
+  doctorType: 'specialist' | 'dental'
+  date: string
+}
+
 type BillingResult = {
   patient: PatientRecord
   bill: Record<string, unknown>
   print: Record<string, unknown>
+}
+
+type BookingRecord = {
+  billId: number
+  reference: string
+  bookingNumber: number | null
+  date: string
+  doctorName: string
+  doctorSpecialty: string
+}
+
+type PrintPayload = {
+  billId: number
+  billReference: string
+  patientName: string
+  doctorName: string
+  paymentType: 'cash' | 'card' | 'online'
+  items: Array<{
+    name: string
+    price: string
+  }>
+  total: number
 }
 
 type AppNotificationLevel = 'error' | 'warning' | 'info' | 'success'
@@ -347,16 +378,44 @@ function normalizePhone(value: string): string {
 }
 
 function normalizePatient(record: Record<string, unknown>): PatientRecord {
+  const birthday = getString(record, 'birthday') || getString(record, 'dateOfBirth')
+
   return {
     id: getNumber(record, 'id') ?? 0,
     name: getString(record, 'name'),
     telephone: getString(record, 'telephone') || getString(record, 'phone'),
     email: getString(record, 'email'),
+    dateOfBirth: formatIsoDateForDisplay(birthday),
     age: getString(record, 'age') || String(getNumber(record, 'age') ?? ''),
     gender: getString(record, 'gender'),
     address: getString(record, 'address'),
     registrationNo: getString(record, 'registrationNo') || getString(record, 'registration_no')
   }
+}
+
+function formatIsoDateForDisplay(value: string): string {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!match) return ''
+
+  const [, year, month, day] = match
+  return `${day}/${month}/${year}`
+}
+
+function parseDisplayDateToIso(value: string): string | null {
+  const trimmed = value.trim()
+  const match = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (!match) return null
+
+  const [, day, month, year] = match
+  const iso = `${year}-${month}-${day}`
+  const parsed = new Date(`${iso}T00:00:00`)
+
+  if (Number.isNaN(parsed.getTime())) return null
+  if (parsed.getUTCFullYear() !== Number(year)) return null
+  if (parsed.getUTCMonth() + 1 !== Number(month)) return null
+  if (parsed.getUTCDate() !== Number(day)) return null
+
+  return iso
 }
 
 function normalizeDoctor(record: Record<string, unknown>): DoctorRecord {
@@ -421,9 +480,12 @@ function patientPayloadFromDraft(draft: PatientDraft): Record<string, unknown> {
     name: normalizeWhitespace(draft.name),
     telephone: normalizeWhitespace(draft.telephone),
     email: normalizeWhitespace(draft.email) || undefined,
+    birthday: parseDisplayDateToIso(draft.dateOfBirth) || undefined,
     age: Number(draft.age),
     gender: draft.gender.toLowerCase(),
-    address: normalizeWhitespace(draft.address) || undefined
+    address: normalizeWhitespace(draft.address) || undefined,
+    registrationNo: normalizeWhitespace(draft.registrationNo) || undefined,
+    registration_no: normalizeWhitespace(draft.registrationNo) || undefined
   }
 }
 
@@ -478,6 +540,40 @@ async function createBill(
   })
 }
 
+function normalizeBooking(record: Record<string, unknown>): BookingRecord {
+  const billId = getNumber(record, 'bill_id') ?? getNumber(record, 'id') ?? 0
+
+  if (!billId) {
+    throw new Error('Booking was created, but no bill id was returned by the API.')
+  }
+
+  return {
+    billId,
+    reference: getString(record, 'reference') || getString(record, 'bill_reference'),
+    bookingNumber: getNumber(record, 'booking_number'),
+    date: getString(record, 'date'),
+    doctorName: getString(record, 'doctor_name'),
+    doctorSpecialty: getString(record, 'doctor_specialty')
+  }
+}
+
+async function createBooking(payload: BookingSubmission): Promise<BookingRecord> {
+  const response = await apiRequest<Record<string, unknown>>('/api/public/bookings/make-appointment', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: normalizeWhitespace(payload.patient.name),
+      phone: normalizeWhitespace(payload.patient.telephone),
+      email: normalizeWhitespace(payload.patient.email) || undefined,
+      age: Number(payload.patient.age),
+      doctor_id: payload.doctorId,
+      doctor_type: payload.doctorType,
+      date: payload.date
+    })
+  })
+
+  return normalizeBooking(response)
+}
+
 function getBillIdentifier(bill: Record<string, unknown>): number | null {
   return getNumber(bill, 'id') ?? getNumber(bill, 'bill_id')
 }
@@ -491,17 +587,7 @@ function getBillReference(bill: Record<string, unknown>): string {
   )
 }
 
-async function printBill(
-  payload: BillingSubmission,
-  patient: PatientRecord,
-  bill: Record<string, unknown>
-): Promise<Record<string, unknown>> {
-  const billId = getBillIdentifier(bill)
-
-  if (!billId) {
-    throw new Error('Bill was created, but no printable bill id was returned by the API.')
-  }
-
+async function printReceipt(payload: PrintPayload): Promise<Record<string, unknown>> {
   const response = await fetch(`${getPrinterBaseUrl()}/print`, {
     method: 'POST',
     headers: {
@@ -509,10 +595,10 @@ async function printBill(
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      bill_reference: getBillReference(bill),
+      bill_reference: payload.billReference,
       payment_type: payload.paymentType,
-      bill_id: billId,
-      customer_name: patient.name,
+      bill_id: payload.billId,
+      customer_name: payload.patientName,
       doctor_name: payload.doctorName,
       items: payload.items,
       total: payload.total.toFixed(2)
@@ -533,7 +619,21 @@ async function printBill(
 async function submitBilling(payload: BillingSubmission): Promise<BillingResult> {
   const patient = await upsertPatient(payload.patient)
   const bill = await createBill(payload, patient.id)
-  const print = await printBill(payload, patient, bill)
+  const billId = getBillIdentifier(bill)
+
+  if (!billId) {
+    throw new Error('Bill was created, but no printable bill id was returned by the API.')
+  }
+
+  const print = await printReceipt({
+    billId,
+    billReference: getBillReference(bill),
+    patientName: patient.name,
+    doctorName: payload.doctorName,
+    paymentType: payload.paymentType,
+    items: payload.items,
+    total: payload.total
+  })
   return { patient, bill, print }
 }
 
@@ -632,6 +732,14 @@ handlePromiseError(
 
     ipcMain.handle('billing:submit', async (_, payload: BillingSubmission) => {
       return submitBilling(payload)
+    })
+
+    ipcMain.handle('booking:submit', async (_, payload: BookingSubmission) => {
+      return createBooking(payload)
+    })
+
+    ipcMain.handle('receipt:print', async (_, payload: PrintPayload) => {
+      return printReceipt(payload)
     })
 
     createWindow()
