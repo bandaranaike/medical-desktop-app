@@ -14,10 +14,7 @@ const tabs: Array<{ value: OperationType; label: string }> = [
   { value: 'others', label: 'Others' }
 ]
 
-export function OperationTabs({
-  value,
-  onChange
-}: OperationTabsProps): React.JSX.Element {
+export function OperationTabs({ value, onChange }: OperationTabsProps): React.JSX.Element {
   return (
     <div className="inline-flex rounded-lg border border-border/90 bg-[#151e29] p-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
       {tabs.map((tab) => (

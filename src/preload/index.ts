@@ -105,8 +105,11 @@ const api = {
   listDoctors: (): Promise<DoctorRecord[]> => ipcRenderer.invoke('doctors:list'),
   submitBilling: (
     payload: BillingSubmission
-  ): Promise<{ patient: PatientRecord; bill: Record<string, unknown>; print: Record<string, unknown> }> =>
-    ipcRenderer.invoke('billing:submit', payload),
+  ): Promise<{
+    patient: PatientRecord
+    bill: Record<string, unknown>
+    print: Record<string, unknown>
+  }> => ipcRenderer.invoke('billing:submit', payload),
   submitBooking: (payload: BookingSubmission): Promise<BookingRecord> =>
     ipcRenderer.invoke('booking:submit', payload),
   printReceipt: (payload: PrintPayload): Promise<Record<string, unknown>> =>

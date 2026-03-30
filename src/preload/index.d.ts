@@ -102,9 +102,11 @@ declare global {
       listUsers(): Promise<Array<{ id: number; [key: string]: unknown }>>
       searchPatients(query: string): Promise<PatientRecord[]>
       listDoctors(): Promise<DoctorRecord[]>
-      submitBilling(
-        payload: BillingSubmission
-      ): Promise<{ patient: PatientRecord; bill: Record<string, unknown>; print: Record<string, unknown> }>
+      submitBilling(payload: BillingSubmission): Promise<{
+        patient: PatientRecord
+        bill: Record<string, unknown>
+        print: Record<string, unknown>
+      }>
       submitBooking(payload: BookingSubmission): Promise<BookingRecord>
       printReceipt(payload: PrintPayload): Promise<Record<string, unknown>>
       onAppNotification(callback: (notification: AppNotification) => void): () => void

@@ -35,9 +35,7 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps): React.J
             </svg>
           </button>
         </div>
-        <div className="p-4 overflow-y-auto max-h-[85vh]">
-          {children}
-        </div>
+        <div className="p-4 overflow-y-auto max-h-[85vh]">{children}</div>
       </div>
     </div>
   )

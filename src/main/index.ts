@@ -237,9 +237,7 @@ function getApiConfig(): {
     .map(([name]) => name)
 
   if (missing.length > 0) {
-    throw new Error(
-      `Missing API configuration in ${getConfigSourceLabel()}: ${missing.join(', ')}`
-    )
+    throw new Error(`Missing API configuration in ${getConfigSourceLabel()}: ${missing.join(', ')}`)
   }
 
   return {
@@ -558,18 +556,21 @@ function normalizeBooking(record: Record<string, unknown>): BookingRecord {
 }
 
 async function createBooking(payload: BookingSubmission): Promise<BookingRecord> {
-  const response = await apiRequest<Record<string, unknown>>('/api/public/bookings/make-appointment', {
-    method: 'POST',
-    body: JSON.stringify({
-      name: normalizeWhitespace(payload.patient.name),
-      phone: normalizeWhitespace(payload.patient.telephone),
-      email: normalizeWhitespace(payload.patient.email) || undefined,
-      age: Number(payload.patient.age),
-      doctor_id: payload.doctorId,
-      doctor_type: payload.doctorType,
-      date: payload.date
-    })
-  })
+  const response = await apiRequest<Record<string, unknown>>(
+    '/api/public/bookings/make-appointment',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        name: normalizeWhitespace(payload.patient.name),
+        phone: normalizeWhitespace(payload.patient.telephone),
+        email: normalizeWhitespace(payload.patient.email) || undefined,
+        age: Number(payload.patient.age),
+        doctor_id: payload.doctorId,
+        doctor_type: payload.doctorType,
+        date: payload.date
+      })
+    }
+  )
 
   return normalizeBooking(response)
 }

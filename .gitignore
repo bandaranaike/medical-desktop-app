@@ -8,3 +8,4 @@ out
 /src/generated/prisma
 /.ai/resources/
 .env
+.idea

@@ -1,4 +1,4 @@
-import React, { useEffect, useEffectEvent, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 
 import { OperationTabs, type OperationType } from '@/components/home/operation-tabs'
 import { SurfaceCard } from '@/components/home/surface-card'
@@ -318,6 +318,64 @@ function doctorOptionsForOperation(
   return matches.length > 0 ? matches : doctors
 }
 
+function defaultDoctorIdForOperation(doctors: DoctorOption[], operation: OperationType): number {
+  return doctorOptionsForOperation(doctors, operation)[0]?.id ?? doctors[0]?.id ?? 0
+}
+
+function applyOpdDoctorDefaults(
+  current: { doctorId: number; consultationFee: string; medicineFee: string },
+  doctorId: number,
+  defaults?: { consultationFee: string; medicineFee: string }
+): { doctorId: number; consultationFee: string; medicineFee: string } {
+  const next = {
+    ...current,
+    doctorId,
+    consultationFee: current.consultationFee || defaults?.consultationFee || '',
+    medicineFee: current.medicineFee || defaults?.medicineFee || ''
+  }
+
+  return next.doctorId === current.doctorId &&
+    next.consultationFee === current.consultationFee &&
+    next.medicineFee === current.medicineFee
+    ? current
+    : next
+}
+
+function applyChannelingDoctorDefaults(
+  current: { doctorId: number; consultationFee: string; bookingFee: string },
+  doctorId: number,
+  defaults?: { consultationFee: string; bookingFee: string }
+): { doctorId: number; consultationFee: string; bookingFee: string } {
+  const next = {
+    ...current,
+    doctorId,
+    consultationFee: current.consultationFee || defaults?.consultationFee || '',
+    bookingFee: current.bookingFee || defaults?.bookingFee || ''
+  }
+
+  return next.doctorId === current.doctorId &&
+    next.consultationFee === current.consultationFee &&
+    next.bookingFee === current.bookingFee
+    ? current
+    : next
+}
+
+function applyDentalDoctorDefaults(
+  current: { doctorId: number; registrationFee: string; rows: ChargeRow[] },
+  doctorId: number,
+  defaults?: { registrationFee: string }
+): { doctorId: number; registrationFee: string; rows: ChargeRow[] } {
+  const next = {
+    ...current,
+    doctorId,
+    registrationFee: current.registrationFee || defaults?.registrationFee || ''
+  }
+
+  return next.doctorId === current.doctorId && next.registrationFee === current.registrationFee
+    ? current
+    : next
+}
+
 function billIdLabel(bill: Record<string, unknown>): string {
   if (typeof bill.id === 'number') return `Bill #${bill.id} created`
   if (typeof bill.bill_id === 'number') return `Bill #${bill.bill_id} created`
@@ -325,9 +383,7 @@ function billIdLabel(bill: Record<string, unknown>): string {
   return 'Bill created successfully'
 }
 
-function bookingDoctorTypeForOperation(
-  operation: OperationType
-): 'specialist' | 'dental' | null {
+function bookingDoctorTypeForOperation(operation: OperationType): 'specialist' | 'dental' | null {
   if (operation === 'channeling') return 'specialist'
   if (operation === 'dental') return 'dental'
   return null
@@ -453,7 +509,9 @@ function App(): React.JSX.Element {
     status: 'idle' | 'loading' | 'success' | 'error'
     message: string
   }>({ status: 'idle', message: '' })
-  const [formPreferences, setFormPreferences] = useState<FormPreferences>(() => loadFormPreferences())
+  const [formPreferences, setFormPreferences] = useState<FormPreferences>(() =>
+    loadFormPreferences()
+  )
   const [savedBooking, setSavedBooking] = useState<{
     record: BookingRecord
     draftSignature: string
@@ -475,18 +533,26 @@ function App(): React.JSX.Element {
     makeRow('Report Charge', ''),
     makeRow('Treatment Charge', '')
   ])
-  const dismissToast = useEffectEvent((id: string) => {
+  const dismissToast = (id: string): void => {
     setToasts((current) => current.filter((toast) => toast.id !== id))
-  })
-  const pushToast = useEffectEvent((level: ToastTone, title: string, message: string) => {
+  }
+  const pushToast = (level: ToastTone, title: string, message: string): void => {
     setToasts((current) => [...current.slice(-3), makeToast(level, title, message)])
-  })
+  }
+  const {
+    opd: opdFieldDefaults,
+    channeling: channelingFieldDefaults,
+    dental: dentalFieldDefaults
+  } = formPreferences.fieldDefaults
 
   useEffect(() => {
     return api.onAppNotification((notification) => {
-      pushToast(notification.level, notification.title, notification.message)
+      setToasts((current) => [
+        ...current.slice(-3),
+        makeToast(notification.level, notification.title, notification.message)
+      ])
     })
-  }, [api, pushToast])
+  }, [api])
 
   useEffect(() => {
     let cancelled = false
@@ -497,13 +563,45 @@ function App(): React.JSX.Element {
         if (cancelled) return
         setDoctors(records)
         setDoctorError('')
+        if (records.length === 0) return
+
+        const opdDoctorId = defaultDoctorIdForOperation(records, 'opd')
+        const channelingDoctorId = defaultDoctorIdForOperation(records, 'channeling')
+        const dentalDoctorId = defaultDoctorIdForOperation(records, 'dental')
+        const othersDoctorId = defaultDoctorIdForOperation(records, 'others')
+
+        setOpd((current) =>
+          applyOpdDoctorDefaults(
+            current,
+            current.doctorId || opdDoctorId,
+            opdFieldDefaults[current.doctorId || opdDoctorId]
+          )
+        )
+        setChanneling((current) =>
+          applyChannelingDoctorDefaults(
+            current,
+            current.doctorId || channelingDoctorId,
+            channelingFieldDefaults[current.doctorId || channelingDoctorId]
+          )
+        )
+        setDental((current) =>
+          applyDentalDoctorDefaults(
+            current,
+            current.doctorId || dentalDoctorId,
+            dentalFieldDefaults[current.doctorId || dentalDoctorId]
+          )
+        )
+        setOthersDoctorId((current) => current || othersDoctorId)
       })
       .catch((error: unknown) => {
         if (cancelled) return
         const message = error instanceof Error ? error.message : 'Failed to load doctors'
         setDoctors([])
         setDoctorError(message)
-        pushToast('error', 'Doctor list unavailable', message)
+        setToasts((current) => [
+          ...current.slice(-3),
+          makeToast('error', 'Doctor list unavailable', message)
+        ])
       })
       .finally(() => {
         if (!cancelled) {
@@ -514,69 +612,13 @@ function App(): React.JSX.Element {
     return () => {
       cancelled = true
     }
-  }, [api])
-
-  useEffect(() => {
-    if (doctors.length === 0) return
-
-    const opdDefault = doctorOptionsForOperation(doctors, 'opd')[0]?.id ?? doctors[0].id
-    const channelingDefault =
-      doctorOptionsForOperation(doctors, 'channeling')[0]?.id ?? doctors[0].id
-    const dentalDefault = doctorOptionsForOperation(doctors, 'dental')[0]?.id ?? doctors[0].id
-    const othersDefault = doctorOptionsForOperation(doctors, 'others')[0]?.id ?? doctors[0].id
-
-    setOpd((current) => ({ ...current, doctorId: current.doctorId || opdDefault }))
-    setChanneling((current) => ({
-      ...current,
-      doctorId: current.doctorId || channelingDefault
-    }))
-    setDental((current) => ({ ...current, doctorId: current.doctorId || dentalDefault }))
-    setOthersDoctorId((current) => current || othersDefault)
-  }, [doctors])
-
-  useEffect(() => {
-    if (!opd.doctorId) return
-    const defaults = formPreferences.fieldDefaults.opd[opd.doctorId]
-    if (!defaults) return
-
-    setOpd((current) => ({
-      ...current,
-      consultationFee: current.consultationFee || defaults.consultationFee,
-      medicineFee: current.medicineFee || defaults.medicineFee
-    }))
-  }, [formPreferences.fieldDefaults.opd, opd.doctorId])
-
-  useEffect(() => {
-    if (!channeling.doctorId) return
-    const defaults = formPreferences.fieldDefaults.channeling[channeling.doctorId]
-    if (!defaults) return
-
-    setChanneling((current) => ({
-      ...current,
-      consultationFee: current.consultationFee || defaults.consultationFee,
-      bookingFee: current.bookingFee || defaults.bookingFee
-    }))
-  }, [channeling.doctorId, formPreferences.fieldDefaults.channeling])
-
-  useEffect(() => {
-    if (!dental.doctorId) return
-    const defaults = formPreferences.fieldDefaults.dental[dental.doctorId]
-    if (!defaults) return
-
-    setDental((current) => ({
-      ...current,
-      registrationFee: current.registrationFee || defaults.registrationFee
-    }))
-  }, [dental.doctorId, formPreferences.fieldDefaults.dental])
+  }, [api, channelingFieldDefaults, dentalFieldDefaults, opdFieldDefaults])
 
   useEffect(() => {
     const query =
       activeField === 'name' ? patient.name : activeField === 'telephone' ? patient.telephone : ''
-    if (!activeField || query.trim().length < 2) {
-      setSearchResults([])
-      setSearchError('')
-      return
-    }
+    if (!activeField || query.trim().length < 2) return
+
     const timer = setTimeout(() => {
       void api
         .searchPatients(query.trim())
@@ -588,11 +630,14 @@ function App(): React.JSX.Element {
           const message = error instanceof Error ? error.message : 'Failed to search patients'
           setSearchResults([])
           setSearchError(message)
-          pushToast('warning', 'Patient search failed', message)
+          setToasts((current) => [
+            ...current.slice(-3),
+            makeToast('warning', 'Patient search failed', message)
+          ])
         })
     }, 220)
     return () => clearTimeout(timer)
-  }, [activeField, api, patient.name, patient.telephone, pushToast])
+  }, [activeField, api, patient.name, patient.telephone])
 
   const setPatientField = (key: keyof PatientInfo, value: string | number | null): void => {
     setPatient((current) => ({ ...current, [key]: value }))
@@ -618,10 +663,11 @@ function App(): React.JSX.Element {
       ...nextPatient,
       id: movedAwayFromSelectedPatient ? null : nextPatient.id
     })
+    setSearchResults([])
+    setSearchError('')
 
     if (movedAwayFromSelectedPatient) {
       setSelectedPatientSnapshot(null)
-      setSearchResults([])
       setActiveField(null)
     }
 
@@ -749,6 +795,11 @@ function App(): React.JSX.Element {
     printableItems,
     total
   })
+  const activeSearchQuery =
+    activeField === 'name' ? patient.name : activeField === 'telephone' ? patient.telephone : ''
+  const canShowSearchFeedback = !!activeField && activeSearchQuery.trim().length >= 2
+  const currentSavedBooking =
+    savedBooking?.draftSignature === bookingDraftSignature ? savedBooking : null
 
   const persistFormPreferences = (updater: (current: FormPreferences) => FormPreferences): void => {
     setFormPreferences((current) => {
@@ -865,41 +916,39 @@ function App(): React.JSX.Element {
     })
   }
 
-  useEffect(() => {
-    if (!savedBooking) return
-    if (savedBooking.draftSignature === bookingDraftSignature) return
-    setSavedBooking(null)
-  }, [bookingDraftSignature, savedBooking])
+  const setSubmitErrorWithToast = (title: string, message: string): void => {
+    setSubmitState({ status: 'error', message })
+    pushToast('warning', title, message)
+  }
 
-  const handleSubmit = async (): Promise<void> => {
+  const validatePatientAndDoctor = (doctorRequiredMessage: string): boolean => {
     if (!patient.name.trim()) {
-      const message = 'Patient name is required.'
-      setSubmitState({ status: 'error', message })
-      pushToast('warning', 'Missing patient name', message)
-      return
+      setSubmitErrorWithToast('Missing patient name', 'Patient name is required.')
+      return false
     }
     if (!patient.telephone.trim()) {
-      const message = 'Patient telephone is required.'
-      setSubmitState({ status: 'error', message })
-      pushToast('warning', 'Missing telephone number', message)
-      return
+      setSubmitErrorWithToast('Missing telephone number', 'Patient telephone is required.')
+      return false
     }
     if (!patient.age.trim() || Number(patient.age) <= 0) {
-      const message = 'Patient age must be a valid number.'
-      setSubmitState({ status: 'error', message })
-      pushToast('warning', 'Invalid patient age', message)
-      return
+      setSubmitErrorWithToast('Invalid patient age', 'Patient age must be a valid number.')
+      return false
     }
     if (!currentDoctorId) {
-      const message = 'Select a doctor before generating the bill.'
-      setSubmitState({ status: 'error', message })
-      pushToast('warning', 'Doctor required', message)
+      setSubmitErrorWithToast('Doctor required', doctorRequiredMessage)
+      return false
+    }
+
+    return true
+  }
+
+  const handleSubmit = async (): Promise<void> => {
+    if (!validatePatientAndDoctor('Select a doctor before generating the bill.')) {
       return
     }
     if (total <= 0) {
       const message = 'Enter at least one bill amount before printing.'
-      setSubmitState({ status: 'error', message })
-      pushToast('warning', 'Missing bill amount', message)
+      setSubmitErrorWithToast('Missing bill amount', message)
       return
     }
 
@@ -934,34 +983,12 @@ function App(): React.JSX.Element {
   }
 
   const handleSaveBooking = async (): Promise<void> => {
-    if (!patient.name.trim()) {
-      const message = 'Patient name is required.'
-      setSubmitState({ status: 'error', message })
-      pushToast('warning', 'Missing patient name', message)
-      return
-    }
-    if (!patient.telephone.trim()) {
-      const message = 'Patient telephone is required.'
-      setSubmitState({ status: 'error', message })
-      pushToast('warning', 'Missing telephone number', message)
-      return
-    }
-    if (!patient.age.trim() || Number(patient.age) <= 0) {
-      const message = 'Patient age must be a valid number.'
-      setSubmitState({ status: 'error', message })
-      pushToast('warning', 'Invalid patient age', message)
-      return
-    }
-    if (!currentDoctorId) {
-      const message = 'Select a doctor before saving the booking.'
-      setSubmitState({ status: 'error', message })
-      pushToast('warning', 'Doctor required', message)
+    if (!validatePatientAndDoctor('Select a doctor before saving the booking.')) {
       return
     }
     if (!bookingDoctorType) {
       const message = 'Booking mode is currently available for Channeling and Dental visits only.'
-      setSubmitState({ status: 'error', message })
-      pushToast('warning', 'Booking not supported here', message)
+      setSubmitErrorWithToast('Booking not supported here', message)
       return
     }
 
@@ -993,16 +1020,14 @@ function App(): React.JSX.Element {
   }
 
   const handlePrintBooking = async (): Promise<void> => {
-    if (!savedBooking) {
+    if (!currentSavedBooking) {
       const message = 'Save the booking before printing the bill.'
-      setSubmitState({ status: 'error', message })
-      pushToast('warning', 'Booking not saved', message)
+      setSubmitErrorWithToast('Booking not saved', message)
       return
     }
     if (total <= 0) {
       const message = 'Enter at least one bill amount before printing.'
-      setSubmitState({ status: 'error', message })
-      pushToast('warning', 'Missing bill amount', message)
+      setSubmitErrorWithToast('Missing bill amount', message)
       return
     }
 
@@ -1010,17 +1035,17 @@ function App(): React.JSX.Element {
 
     try {
       await api.printReceipt({
-        billId: savedBooking.record.billId,
-        billReference: savedBooking.record.reference,
+        billId: currentSavedBooking.record.billId,
+        billReference: currentSavedBooking.record.reference,
         patientName: patient.name,
-        doctorName: currentDoctor?.name ?? savedBooking.record.doctorName,
+        doctorName: currentDoctor?.name ?? currentSavedBooking.record.doctorName,
         paymentType: 'cash',
         items: printableItems,
         total
       })
 
-      const message = savedBooking.record.reference
-        ? `Printed booking bill ${savedBooking.record.reference}`
+      const message = currentSavedBooking.record.reference
+        ? `Printed booking bill ${currentSavedBooking.record.reference}`
         : 'Printed saved booking bill'
       setSubmitState({ status: 'success', message })
       pushToast('success', 'Booking bill printed', message)
@@ -1050,7 +1075,8 @@ function App(): React.JSX.Element {
                   Simple billing flow for clinic operators
                 </h1>
                 <p className="text-xs text-slate-400">
-                  Search patient details, select visit type, enter charges, and generate a bill or save a booking.
+                  Search patient details, select visit type, enter charges, and generate a bill or
+                  save a booking.
                 </p>
               </div>
             </div>
@@ -1066,9 +1092,7 @@ function App(): React.JSX.Element {
                   <span className="block text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
                     Booking
                   </span>
-                  <span className="block text-xs text-slate-200">
-                    Save this visit as a booking
-                  </span>
+                  <span className="block text-xs text-slate-200">Save this visit as a booking</span>
                 </span>
               </label>
               <div className="min-w-35 rounded-lg border border-border/90 bg-[#16202c] px-3 py-1.5">
@@ -1120,7 +1144,7 @@ function App(): React.JSX.Element {
                   field="name"
                   value={patient.name}
                   placeholder="Patient name"
-                  results={searchResults}
+                  results={canShowSearchFeedback ? searchResults : []}
                   activeField={activeField}
                   onFocus={setActiveField}
                   onBlur={() => {
@@ -1136,7 +1160,7 @@ function App(): React.JSX.Element {
                   field="telephone"
                   value={patient.telephone}
                   placeholder="Telephone number"
-                  results={searchResults}
+                  results={canShowSearchFeedback ? searchResults : []}
                   activeField={activeField}
                   onFocus={setActiveField}
                   onBlur={() => {
@@ -1209,7 +1233,7 @@ function App(): React.JSX.Element {
                     className={inputClassName}
                   />
                 </div>
-                {searchError ? (
+                {canShowSearchFeedback && searchError ? (
                   <div className="md:col-span-2 xl:col-span-3 rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
                     {searchError}
                   </div>
@@ -1228,7 +1252,8 @@ function App(): React.JSX.Element {
                           Recent Services
                         </p>
                         <p className="mt-1 text-xs text-slate-400">
-                          Tap a recent service to bring it back into the current form with its last used value.
+                          Tap a recent service to bring it back into the current form with its last
+                          used value.
                         </p>
                       </div>
                     </div>
@@ -1253,10 +1278,13 @@ function App(): React.JSX.Element {
                       <select
                         value={opd.doctorId}
                         onChange={(event) =>
-                          setOpd((current) => ({
-                            ...current,
-                            doctorId: Number(event.target.value)
-                          }))
+                          setOpd((current) =>
+                            applyOpdDoctorDefaults(
+                              current,
+                              Number(event.target.value),
+                              formPreferences.fieldDefaults.opd[Number(event.target.value)]
+                            )
+                          )
                         }
                         className={selectClassName}
                         disabled={doctorLoading || currentDoctorOptions.length === 0}
@@ -1301,10 +1329,13 @@ function App(): React.JSX.Element {
                       <select
                         value={channeling.doctorId}
                         onChange={(event) =>
-                          setChanneling((current) => ({
-                            ...current,
-                            doctorId: Number(event.target.value)
-                          }))
+                          setChanneling((current) =>
+                            applyChannelingDoctorDefaults(
+                              current,
+                              Number(event.target.value),
+                              formPreferences.fieldDefaults.channeling[Number(event.target.value)]
+                            )
+                          )
                         }
                         className={selectClassName}
                         disabled={doctorLoading || currentDoctorOptions.length === 0}
@@ -1356,10 +1387,13 @@ function App(): React.JSX.Element {
                         <select
                           value={dental.doctorId}
                           onChange={(event) =>
-                            setDental((current) => ({
-                              ...current,
-                              doctorId: Number(event.target.value)
-                            }))
+                            setDental((current) =>
+                              applyDentalDoctorDefaults(
+                                current,
+                                Number(event.target.value),
+                                formPreferences.fieldDefaults.dental[Number(event.target.value)]
+                              )
+                            )
                           }
                           className={selectClassName}
                           disabled={doctorLoading || currentDoctorOptions.length === 0}
@@ -1650,18 +1684,21 @@ function App(): React.JSX.Element {
                     {submitState.message}
                   </div>
                 ) : null}
-                {isBooking && savedBooking ? (
+                {isBooking && currentSavedBooking ? (
                   <div className="rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-xs text-primary">
                     Saved booking
-                    {savedBooking.record.bookingNumber
-                      ? ` #${savedBooking.record.bookingNumber}`
+                    {currentSavedBooking.record.bookingNumber
+                      ? ` #${currentSavedBooking.record.bookingNumber}`
                       : ''}
-                    {savedBooking.record.reference ? ` • ${savedBooking.record.reference}` : ''}
+                    {currentSavedBooking.record.reference
+                      ? ` • ${currentSavedBooking.record.reference}`
+                      : ''}
                   </div>
                 ) : null}
                 {isBooking && !bookingDoctorType ? (
                   <div className="rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-                    Booking mode currently supports Channeling and Dental visits with the available public API.
+                    Booking mode currently supports Channeling and Dental visits with the available
+                    public API.
                   </div>
                 ) : null}
                 <div className="grid gap-2">
@@ -1685,12 +1722,10 @@ function App(): React.JSX.Element {
                         variant="outline"
                         onClick={() => void handlePrintBooking()}
                         disabled={
-                          submitState.status === 'loading' ||
-                          !savedBooking ||
-                          total <= 0
+                          submitState.status === 'loading' || !currentSavedBooking || total <= 0
                         }
                         className={cn(
-                          'h-10 rounded-md border-border/90 bg-white/[0.04] text-xs font-semibold text-slate-100 hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-60'
+                          'h-10 rounded-md border-border/90 bg-white/4 text-xs font-semibold text-slate-100 hover:bg-white/8 disabled:cursor-not-allowed disabled:opacity-60'
                         )}
                       >
                         Print Bill
