@@ -103,6 +103,11 @@ type DoctorRecord = {
   dentalSplitValue: number
 }
 
+type DoctorListOptions = {
+  date?: string
+  doctorType?: 'opd' | 'specialist' | 'dental' | 'treatment'
+}
+
 type BillingSubmission = {
   patient: PatientDraft
   doctorId: number
@@ -138,6 +143,61 @@ type BookingRecord = {
   date: string
   doctorName: string
   doctorSpecialty: string
+}
+
+type BookingQueueItem = {
+  id: number
+  billId: number
+  reference: string
+  bookingNumber: number | null
+  date: string
+  status: string
+  patient: PatientRecord
+  doctor: {
+    id: number | null
+    name: string
+    specialty: string
+    doctorType: string
+  }
+  paymentType: 'cash' | 'card' | 'online'
+  shift: 'morning' | 'evening'
+  serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
+  billAmount: number
+  systemAmount: number
+  items: Array<{
+    name: string
+    price: string
+  }>
+  createdAt: string
+}
+
+type BookingUpdatePayload = {
+  id: number
+  patient: PatientDraft
+  doctorId: number
+  doctorType: 'specialist' | 'dental'
+  date: string
+  shift: 'morning' | 'evening'
+  paymentType: 'cash' | 'card' | 'online'
+  serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
+  billAmount: number
+  systemAmount: number
+  items: Array<{
+    name: string
+    price: string
+  }>
+}
+
+type BookingProceedPayload = {
+  id: number
+  paymentType: 'cash' | 'card' | 'online'
+  shift: 'morning' | 'evening'
+  billAmount: number
+  systemAmount: number
+  items: Array<{
+    name: string
+    price: string
+  }>
 }
 
 type PrintPayload = {
@@ -271,8 +331,6 @@ async function apiRequest<T>(
   headers.set('Referer', config.referer)
   headers.set('Authorization', `Bearer ${config.authToken}`)
 
-  console.log('API Request:', config.baseUrl + path)
-
   const response = await fetch(`${config.baseUrl}${path}`, {
     ...init,
     headers
@@ -367,6 +425,14 @@ function getNumber(record: unknown, key: string): number | null {
   return null
 }
 
+function getRecord(record: unknown, key: string): Record<string, unknown> | null {
+  if (!record || typeof record !== 'object') return null
+  const value = (record as Record<string, unknown>)[key]
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
 function normalizeWhitespace(value: string): string {
   return value.trim().replace(/\s+/g, ' ')
 }
@@ -439,6 +505,12 @@ function normalizeDoctor(record: Record<string, unknown>): DoctorRecord {
   }
 }
 
+function doctorCollection(payload: unknown): DoctorRecord[] {
+  return getCollection(payload)
+    .map(normalizeDoctor)
+    .filter((item) => item.id > 0 && item.name)
+}
+
 async function searchPatients(query: string): Promise<PatientRecord[]> {
   const payload = await apiRequest<unknown>(
     `/api/public/patients/search?query=${encodeURIComponent(query)}`
@@ -448,11 +520,47 @@ async function searchPatients(query: string): Promise<PatientRecord[]> {
     .filter((item) => item.id > 0)
 }
 
-async function listDoctors(): Promise<DoctorRecord[]> {
-  const payload = await apiRequest<unknown>('/api/public/doctors?sort[]=name')
-  return getCollection(payload)
-    .map(normalizeDoctor)
-    .filter((item) => item.id > 0 && item.name)
+async function listDoctors(options: DoctorListOptions = {}): Promise<DoctorRecord[]> {
+  const date = options.date?.trim()
+  const doctorType = options.doctorType?.trim()
+
+  if (date && doctorType) {
+    const datedAttempts = [
+      `/api/public/doctors/by-date?date=${encodeURIComponent(date)}&type=${encodeURIComponent(doctorType)}`,
+      `/api/public/doctor-availabilities/search-booking-doctors?date=${encodeURIComponent(date)}&type=${encodeURIComponent(doctorType)}`
+    ]
+
+    for (const path of datedAttempts) {
+      try {
+        const payload = await apiRequest<unknown>(path, {}, { allowNotFound: true })
+        const doctors = doctorCollection(payload)
+        if (doctors.length > 0) {
+          return doctors
+        }
+      } catch (error) {
+        console.warn(`[listDoctors] failed attempt for ${path}`, error)
+      }
+    }
+  }
+
+  const fallbackAttempts = [
+    '/api/public/doctors?sort[]=name',
+    `/api/public/doctors?sort[]=name${doctorType ? `&searchField=doctor_type&searchValue=${encodeURIComponent(doctorType)}` : ''}`
+  ]
+
+  for (const path of fallbackAttempts) {
+    try {
+      const payload = await apiRequest<unknown>(path, {}, { allowNotFound: true })
+      const doctors = doctorCollection(payload)
+      if (doctors.length > 0) {
+        return doctors
+      }
+    } catch (error) {
+      console.warn(`[listDoctors] fallback failed for ${path}`, error)
+    }
+  }
+
+  return []
 }
 
 function findExactPatientMatch(
@@ -552,6 +660,164 @@ function normalizeBooking(record: Record<string, unknown>): BookingRecord {
     date: getString(record, 'date'),
     doctorName: getString(record, 'doctor_name'),
     doctorSpecialty: getString(record, 'doctor_specialty')
+  }
+}
+
+function normalizeBookingQueueItem(record: Record<string, unknown>): BookingQueueItem {
+  const patientRecord = getRecord(record, 'patient')
+  const doctorRecord = getRecord(record, 'doctor')
+  const items =
+    getRecord(record, 'items') === null && Array.isArray(record['items'])
+      ? (record['items'] as unknown[])
+      : []
+
+  return {
+    id: getNumber(record, 'id') ?? getNumber(record, 'bill_id') ?? 0,
+    billId: getNumber(record, 'bill_id') ?? getNumber(record, 'id') ?? 0,
+    reference: getString(record, 'reference') || getString(record, 'bill_reference'),
+    bookingNumber: getNumber(record, 'booking_number'),
+    date: getString(record, 'date'),
+    status: getString(record, 'status') || 'booked',
+    patient: patientRecord
+      ? normalizePatient(patientRecord)
+      : {
+          id: getNumber(record, 'patient_id') ?? 0,
+          name: getString(record, 'patient_name'),
+          telephone: getString(record, 'telephone') || getString(record, 'phone'),
+          email: getString(record, 'email'),
+          dateOfBirth: formatIsoDateForDisplay(getString(record, 'birthday')),
+          age: getString(record, 'age') || String(getNumber(record, 'age') ?? ''),
+          gender: getString(record, 'gender'),
+          address: getString(record, 'address'),
+          registrationNo: getString(record, 'registration_no')
+        },
+    doctor: {
+      id: doctorRecord ? getNumber(doctorRecord, 'id') : getNumber(record, 'doctor_id'),
+      name: doctorRecord ? getString(doctorRecord, 'name') : getString(record, 'doctor_name'),
+      specialty: doctorRecord
+        ? getString(doctorRecord, 'specialty') ||
+          getString(getRecord(doctorRecord, 'specialty'), 'name')
+        : getString(record, 'doctor_specialty'),
+      doctorType: doctorRecord
+        ? getString(doctorRecord, 'doctor_type')
+        : getString(record, 'service_type') || 'specialist'
+    },
+    paymentType: (getString(record, 'payment_type') as 'cash' | 'card' | 'online') || 'cash',
+    shift: (getString(record, 'shift') as 'morning' | 'evening') || 'morning',
+    serviceType:
+      (getString(record, 'service_type') as 'opd' | 'specialist' | 'dental' | 'treatment') ||
+      'specialist',
+    billAmount: getNumber(record, 'bill_amount') ?? 0,
+    systemAmount: getNumber(record, 'system_amount') ?? 0,
+    items: items
+      .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+      .map((item) => ({
+        name: getString(item, 'name') || getString(item, 'service_name') || 'Item',
+        price: getString(item, 'price') || String(getNumber(item, 'bill_amount') ?? 0)
+      })),
+    createdAt: getString(record, 'created_at')
+  }
+}
+
+function normalizeBookingQueue(payload: unknown): BookingQueueItem[] {
+  return getCollection(payload)
+    .map(normalizeBookingQueueItem)
+    .filter((item) => item.id > 0)
+}
+
+function bookingPayloadFromPatient(draft: PatientDraft): Record<string, unknown> {
+  return {
+    name: normalizeWhitespace(draft.name),
+    telephone: normalizeWhitespace(draft.telephone),
+    email: normalizeWhitespace(draft.email) || undefined,
+    age: Number(draft.age),
+    gender: draft.gender.toLowerCase(),
+    address: normalizeWhitespace(draft.address) || undefined,
+    birthday: parseDisplayDateToIso(draft.dateOfBirth) || undefined,
+    registration_no: normalizeWhitespace(draft.registrationNo) || undefined
+  }
+}
+
+function bookingTimeScopeForDate(date: string): 'today' | 'future' | 'old' {
+  const today = new Date().toISOString().slice(0, 10)
+  if (date === today) return 'today'
+  return date > today ? 'future' : 'old'
+}
+
+async function listBookings(date: string): Promise<BookingQueueItem[]> {
+  const normalizedDate = date.trim()
+  const attempts = [
+    `/api/public/bookings?date=${encodeURIComponent(normalizedDate)}`,
+    `/api/public/bills/bookings/${bookingTimeScopeForDate(normalizedDate)}?date=${encodeURIComponent(normalizedDate)}`
+  ]
+
+  for (const path of attempts) {
+    try {
+      const payload = await apiRequest<unknown>(path, {}, { allowNotFound: true })
+      const bookings = normalizeBookingQueue(payload)
+      if (bookings.length > 0) {
+        return bookings.filter((item) => item.date === normalizedDate)
+      }
+    } catch (error) {
+      console.warn(`[listBookings] failed attempt for ${path}`, error)
+    }
+  }
+
+  return []
+}
+
+async function updateBooking(payload: BookingUpdatePayload): Promise<BookingRecord> {
+  const response = await apiRequest<Record<string, unknown>>(`/api/public/bookings/${payload.id}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      patient: bookingPayloadFromPatient(payload.patient),
+      doctor_id: payload.doctorId,
+      doctor_type: payload.doctorType,
+      date: payload.date,
+      shift: payload.shift,
+      payment_type: payload.paymentType,
+      service_type: payload.serviceType,
+      bill_amount: payload.billAmount,
+      system_amount: payload.systemAmount,
+      items: payload.items
+    })
+  })
+
+  const record = getRecord(response, 'booking') ?? response
+  return normalizeBooking(record)
+}
+
+async function deleteBooking(id: number): Promise<{ message: string; deletedId: number }> {
+  const response = await apiRequest<Record<string, unknown>>(`/api/public/bookings/${id}`, {
+    method: 'DELETE'
+  })
+
+  return {
+    message: getString(response, 'message') || 'Booking deleted successfully.',
+    deletedId: getNumber(response, 'deleted_id') ?? id
+  }
+}
+
+async function proceedBookingToPayment(
+  payload: BookingProceedPayload
+): Promise<{ message: string; bill: Record<string, unknown> }> {
+  const response = await apiRequest<Record<string, unknown>>(
+    `/api/public/bookings/${payload.id}/proceed-to-payment`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        payment_type: payload.paymentType,
+        shift: payload.shift,
+        bill_amount: payload.billAmount,
+        system_amount: payload.systemAmount,
+        items: payload.items
+      })
+    }
+  )
+
+  return {
+    message: getString(response, 'message') || 'Booking moved to payment successfully.',
+    bill: getRecord(response, 'bill') ?? response
   }
 }
 
@@ -727,8 +993,8 @@ handlePromiseError(
       return searchPatients(query)
     })
 
-    ipcMain.handle('doctors:list', async () => {
-      return listDoctors()
+    ipcMain.handle('doctors:list', async (_, options?: DoctorListOptions) => {
+      return listDoctors(options)
     })
 
     ipcMain.handle('billing:submit', async (_, payload: BillingSubmission) => {
@@ -737,6 +1003,22 @@ handlePromiseError(
 
     ipcMain.handle('booking:submit', async (_, payload: BookingSubmission) => {
       return createBooking(payload)
+    })
+
+    ipcMain.handle('bookings:list', async (_, date: string) => {
+      return listBookings(date)
+    })
+
+    ipcMain.handle('booking:update', async (_, payload: BookingUpdatePayload) => {
+      return updateBooking(payload)
+    })
+
+    ipcMain.handle('booking:delete', async (_, id: number) => {
+      return deleteBooking(id)
+    })
+
+    ipcMain.handle('booking:proceed-to-payment', async (_, payload: BookingProceedPayload) => {
+      return proceedBookingToPayment(payload)
     })
 
     ipcMain.handle('receipt:print', async (_, payload: PrintPayload) => {

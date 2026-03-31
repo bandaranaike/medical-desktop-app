@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 
 type Shift = 'Morning' | 'Evening'
 type SearchField = 'name' | 'telephone'
+type WorkspaceTab = 'billing' | 'bookings'
 
 interface PatientInfo {
   id: number | null
@@ -72,6 +73,40 @@ interface BookingRecord {
   doctorSpecialty: string
 }
 
+interface BookingQueueItem {
+  id: number
+  billId: number
+  reference: string
+  bookingNumber: number | null
+  date: string
+  status: string
+  patient: PatientInfo
+  doctor: {
+    id: number | null
+    name: string
+    specialty: string
+    doctorType: string
+  }
+  paymentType: 'cash' | 'card' | 'online'
+  shift: 'morning' | 'evening'
+  serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
+  billAmount: number
+  systemAmount: number
+  items: PrintLineItem[]
+  createdAt: string
+}
+
+interface EditingBookingState {
+  id: number
+  reference: string
+  billId: number
+}
+
+interface DoctorListOptions {
+  date?: string
+  doctorType?: 'opd' | 'specialist' | 'dental' | 'treatment'
+}
+
 interface StoredFieldDefaults {
   opd: Record<number, { consultationFee: string; medicineFee: string }>
   channeling: Record<number, { consultationFee: string; bookingFee: string }>
@@ -95,7 +130,7 @@ interface FormPreferences {
 
 type RendererApi = {
   searchPatients: (query: string) => Promise<PatientRecord[]>
-  listDoctors: () => Promise<DoctorOption[]>
+  listDoctors: (options?: DoctorListOptions) => Promise<DoctorOption[]>
   submitBilling: (payload: {
     patient: PatientInfo
     doctorId: number
@@ -117,6 +152,29 @@ type RendererApi = {
     doctorType: 'specialist' | 'dental'
     date: string
   }) => Promise<BookingRecord>
+  listBookings: (date: string) => Promise<BookingQueueItem[]>
+  updateBooking: (payload: {
+    id: number
+    patient: PatientInfo
+    doctorId: number
+    doctorType: 'specialist' | 'dental'
+    date: string
+    shift: 'morning' | 'evening'
+    paymentType: 'cash' | 'card' | 'online'
+    serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
+    billAmount: number
+    systemAmount: number
+    items: PrintLineItem[]
+  }) => Promise<BookingRecord>
+  deleteBooking: (id: number) => Promise<{ message: string; deletedId: number }>
+  proceedBookingToPayment: (payload: {
+    id: number
+    paymentType: 'cash' | 'card' | 'online'
+    shift: 'morning' | 'evening'
+    billAmount: number
+    systemAmount: number
+    items: PrintLineItem[]
+  }) => Promise<{ message: string; bill: Record<string, unknown> }>
   printReceipt: (payload: {
     billId: number
     billReference: string
@@ -310,6 +368,21 @@ function operationServiceType(
   }
 }
 
+function operationTypeFromServiceType(
+  serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
+): OperationType {
+  switch (serviceType) {
+    case 'opd':
+      return 'opd'
+    case 'specialist':
+      return 'channeling'
+    case 'dental':
+      return 'dental'
+    case 'treatment':
+      return 'others'
+  }
+}
+
 function doctorOptionsForOperation(
   doctors: DoctorOption[],
   operation: OperationType
@@ -399,6 +472,10 @@ function bookingLabel(booking: BookingRecord): string {
   return 'Booking saved successfully'
 }
 
+function displayShift(value: 'morning' | 'evening'): Shift {
+  return value === 'evening' ? 'Evening' : 'Morning'
+}
+
 function makeToast(level: ToastTone, title: string, message: string): ToastItem {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -479,6 +556,7 @@ function SearchBox({
 
 function App(): React.JSX.Element {
   const api = window.api as RendererApi
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('billing')
   const [activeOperation, setActiveOperation] = useState<OperationType>('opd')
   const [isBooking, setIsBooking] = useState(false)
   const [shift, setShift] = useState<Shift>('Morning')
@@ -516,6 +594,11 @@ function App(): React.JSX.Element {
     record: BookingRecord
     draftSignature: string
   } | null>(null)
+  const [editingBooking, setEditingBooking] = useState<EditingBookingState | null>(null)
+  const [bookingQueue, setBookingQueue] = useState<BookingQueueItem[]>([])
+  const [bookingQueueLoading, setBookingQueueLoading] = useState(false)
+  const [bookingQueueError, setBookingQueueError] = useState('')
+  const [bookingQueueRefreshKey, setBookingQueueRefreshKey] = useState(0)
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [opd, setOpd] = useState({ doctorId: 0, consultationFee: '', medicineFee: '' })
   const [channeling, setChanneling] = useState({
@@ -539,11 +622,33 @@ function App(): React.JSX.Element {
   const pushToast = (level: ToastTone, title: string, message: string): void => {
     setToasts((current) => [...current.slice(-3), makeToast(level, title, message)])
   }
+  const handleOperationChange = (operation: OperationType): void => {
+    setDoctorLoading(true)
+    setActiveOperation(operation)
+  }
+  const handleBillDateChange = (value: string): void => {
+    setDoctorLoading(true)
+    if (workspaceTab === 'bookings') {
+      setBookingQueueLoading(true)
+    }
+    setBillDate(value)
+  }
+  const handleWorkspaceTabChange = (tab: WorkspaceTab): void => {
+    if (tab === 'bookings') {
+      setBookingQueueLoading(true)
+    }
+    setWorkspaceTab(tab)
+  }
+  const refreshBookingQueue = (): void => {
+    setBookingQueueLoading(true)
+    setBookingQueueRefreshKey((current) => current + 1)
+  }
   const {
     opd: opdFieldDefaults,
     channeling: channelingFieldDefaults,
     dental: dentalFieldDefaults
   } = formPreferences.fieldDefaults
+  const activeDoctorType = operationDoctorType(activeOperation)
 
   useEffect(() => {
     return api.onAppNotification((notification) => {
@@ -558,7 +663,10 @@ function App(): React.JSX.Element {
     let cancelled = false
 
     void api
-      .listDoctors()
+      .listDoctors({
+        date: billDate,
+        doctorType: activeDoctorType
+      })
       .then((records) => {
         if (cancelled) return
         setDoctors(records)
@@ -612,7 +720,14 @@ function App(): React.JSX.Element {
     return () => {
       cancelled = true
     }
-  }, [api, channelingFieldDefaults, dentalFieldDefaults, opdFieldDefaults])
+  }, [
+    activeDoctorType,
+    api,
+    billDate,
+    channelingFieldDefaults,
+    dentalFieldDefaults,
+    opdFieldDefaults
+  ])
 
   useEffect(() => {
     const query =
@@ -638,6 +753,43 @@ function App(): React.JSX.Element {
     }, 220)
     return () => clearTimeout(timer)
   }, [activeField, api, patient.name, patient.telephone])
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (workspaceTab !== 'bookings') {
+      return () => {
+        cancelled = true
+      }
+    }
+
+    void api
+      .listBookings(billDate)
+      .then((records) => {
+        if (cancelled) return
+        setBookingQueue(records)
+        setBookingQueueError('')
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        const message = error instanceof Error ? error.message : 'Failed to load bookings'
+        setBookingQueue([])
+        setBookingQueueError(message)
+        setToasts((current) => [
+          ...current.slice(-3),
+          makeToast('error', 'Booking list unavailable', message)
+        ])
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setBookingQueueLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [api, billDate, bookingQueueRefreshKey, workspaceTab])
 
   const setPatientField = (key: keyof PatientInfo, value: string | number | null): void => {
     setPatient((current) => ({ ...current, [key]: value }))
@@ -731,6 +883,83 @@ function App(): React.JSX.Element {
     setSearchError('')
     setActiveField(null)
     setSubmitState({ status: 'idle', message: '' })
+  }
+
+  const bookingItemAmount = (items: PrintLineItem[], labels: string[]): string => {
+    const match = items.find((item) => labels.includes(item.name.trim().toLowerCase()))
+    return match?.price ?? ''
+  }
+
+  const bookingItemRows = (items: PrintLineItem[], excludedLabels: string[]): ChargeRow[] => {
+    const excluded = new Set(excludedLabels)
+    const rows = items
+      .filter((item) => !excluded.has(item.name.trim().toLowerCase()))
+      .map((item) => makeRow(item.name, item.price))
+
+    return rows.length > 0 ? rows : [makeRow()]
+  }
+
+  const loadBookingIntoForm = (booking: BookingQueueItem): void => {
+    const nextOperation = operationTypeFromServiceType(booking.serviceType)
+    const normalizedPatient: PatientRecord = {
+      id: booking.patient.id ?? 0,
+      name: booking.patient.name,
+      telephone: booking.patient.telephone,
+      email: booking.patient.email,
+      dateOfBirth: booking.patient.dateOfBirth,
+      age: booking.patient.age,
+      address: booking.patient.address,
+      registrationNo: booking.patient.registrationNo,
+      gender: booking.patient.gender
+    }
+
+    fillPatient(normalizedPatient)
+    handleBillDateChange(booking.date)
+    setShift(displayShift(booking.shift))
+    setIsBooking(true)
+    setEditingBooking({
+      id: booking.id,
+      reference: booking.reference,
+      billId: booking.billId
+    })
+    setSavedBooking(null)
+    handleWorkspaceTabChange('billing')
+    handleOperationChange(nextOperation)
+    setSubmitState({ status: 'idle', message: '' })
+
+    if (nextOperation === 'opd') {
+      setOpd({
+        doctorId: booking.doctor.id ?? 0,
+        consultationFee: bookingItemAmount(booking.items, ['doctor fee', 'consultation']),
+        medicineFee: bookingItemAmount(booking.items, ['medicine charge', 'opd medicine fee'])
+      })
+      return
+    }
+
+    if (nextOperation === 'channeling') {
+      setChanneling({
+        doctorId: booking.doctor.id ?? 0,
+        consultationFee: bookingItemAmount(booking.items, ['doctor fee', 'consultation']),
+        bookingFee: bookingItemAmount(booking.items, ['booking fee', 'channeling / booking fee'])
+      })
+      return
+    }
+
+    if (nextOperation === 'dental') {
+      setDental({
+        doctorId: booking.doctor.id ?? 0,
+        registrationFee: bookingItemAmount(booking.items, ['registration fee']),
+        rows: bookingItemRows(booking.items, ['registration fee'])
+      })
+      return
+    }
+
+    setOthersDoctorId(booking.doctor.id ?? 0)
+    setOthers(
+      booking.items.length > 0
+        ? booking.items.map((item) => makeRow(item.name, item.price))
+        : [makeRow()]
+    )
   }
 
   const dentalDoctor = doctors.find((item) => item.id === dental.doctorId)
@@ -873,7 +1102,7 @@ function App(): React.JSX.Element {
 
   const applyRecentServicePreset = (preset: RecentServicePreset): void => {
     if (preset.operation === 'dental') {
-      setActiveOperation('dental')
+      handleOperationChange('dental')
       setDental((current) => {
         const alreadyExists = current.rows.some(
           (row) => row.label.trim().toLowerCase() === preset.label.trim().toLowerCase()
@@ -898,7 +1127,7 @@ function App(): React.JSX.Element {
       return
     }
 
-    setActiveOperation('others')
+    handleOperationChange('others')
     setOthersDoctorId((current) => preset.doctorId || current)
     setOthers((current) => {
       const alreadyExists = current.some(
@@ -942,6 +1171,30 @@ function App(): React.JSX.Element {
     return true
   }
 
+  const currentBookingMutationPayload = (): {
+    patient: PatientInfo
+    doctorId: number
+    doctorType: 'specialist' | 'dental' | null
+    date: string
+    shift: 'morning' | 'evening'
+    paymentType: 'cash'
+    serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
+    billAmount: number
+    systemAmount: number
+    items: PrintLineItem[]
+  } => ({
+    patient,
+    doctorId: currentDoctorId,
+    doctorType: bookingDoctorType,
+    date: billDate,
+    shift: shift.toLowerCase() as 'morning' | 'evening',
+    paymentType: 'cash' as const,
+    serviceType: operationServiceType(activeOperation),
+    billAmount: total,
+    systemAmount: 0,
+    items: printableItems
+  })
+
   const handleSubmit = async (): Promise<void> => {
     if (!validatePatientAndDoctor('Select a doctor before generating the bill.')) {
       return
@@ -970,6 +1223,7 @@ function App(): React.JSX.Element {
       fillPatient(result.patient)
       rememberCurrentDefaults()
       setSavedBooking(null)
+      setEditingBooking(null)
       setSubmitState({ status: 'success', message: billIdLabel(result.bill) })
       pushToast('success', 'Bill created', billIdLabel(result.bill))
     } catch (error) {
@@ -995,20 +1249,54 @@ function App(): React.JSX.Element {
     setSubmitState({ status: 'loading', message: 'Saving booking...' })
 
     try {
-      const booking = await api.submitBooking({
-        patient,
-        doctorId: currentDoctorId,
-        doctorType: bookingDoctorType,
-        date: billDate
-      })
+      const booking = editingBooking
+        ? await api.updateBooking({
+            id: editingBooking.id,
+            ...currentBookingMutationPayload(),
+            doctorType: bookingDoctorType
+          })
+        : await api.submitBooking({
+            patient,
+            doctorId: currentDoctorId,
+            doctorType: bookingDoctorType,
+            date: billDate
+          })
 
       rememberCurrentDefaults()
       setSavedBooking({
         record: booking,
         draftSignature: bookingDraftSignature
       })
+      if (editingBooking) {
+        setBookingQueue((current) =>
+          current.map((item) =>
+            item.id === editingBooking.id
+              ? {
+                  ...item,
+                  date: billDate,
+                  patient,
+                  doctor: {
+                    id: currentDoctorId,
+                    name: currentDoctor?.name ?? item.doctor.name,
+                    specialty: currentDoctor?.specialty ?? item.doctor.specialty,
+                    doctorType: bookingDoctorType
+                  },
+                  shift: shift.toLowerCase() as 'morning' | 'evening',
+                  serviceType: operationServiceType(activeOperation),
+                  billAmount: total,
+                  systemAmount: 0,
+                  items: printableItems
+                }
+              : item
+          )
+        )
+      }
       setSubmitState({ status: 'success', message: bookingLabel(booking) })
-      pushToast('success', 'Booking saved', bookingLabel(booking))
+      pushToast(
+        'success',
+        editingBooking ? 'Booking updated' : 'Booking saved',
+        bookingLabel(booking)
+      )
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to save booking'
       setSubmitState({
@@ -1035,7 +1323,7 @@ function App(): React.JSX.Element {
 
     try {
       await api.printReceipt({
-        billId: currentSavedBooking.record.billId,
+        billId: currentSavedBooking.record.billId ?? editingBooking?.billId ?? 0,
         billReference: currentSavedBooking.record.reference,
         patientName: patient.name,
         doctorName: currentDoctor?.name ?? currentSavedBooking.record.doctorName,
@@ -1056,6 +1344,45 @@ function App(): React.JSX.Element {
         message
       })
       pushToast('error', 'Booking print failed', message)
+    }
+  }
+
+  const handleDeleteBooking = async (booking: BookingQueueItem): Promise<void> => {
+    try {
+      const result = await api.deleteBooking(booking.id)
+      setBookingQueue((current) => current.filter((item) => item.id !== booking.id))
+      if (editingBooking?.id === booking.id) {
+        setEditingBooking(null)
+        setSavedBooking(null)
+        setIsBooking(false)
+      }
+      pushToast('success', 'Booking deleted', result.message)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete booking'
+      pushToast('error', 'Delete failed', message)
+    }
+  }
+
+  const handleProceedBooking = async (booking: BookingQueueItem): Promise<void> => {
+    try {
+      const result = await api.proceedBookingToPayment({
+        id: booking.id,
+        paymentType: booking.paymentType,
+        shift: booking.shift,
+        billAmount: booking.billAmount,
+        systemAmount: booking.systemAmount,
+        items: booking.items
+      })
+      setBookingQueue((current) => current.filter((item) => item.id !== booking.id))
+      if (editingBooking?.id === booking.id) {
+        setEditingBooking(null)
+        setSavedBooking(null)
+        setIsBooking(false)
+      }
+      pushToast('success', 'Moved to payment', result.message)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to move booking to payment'
+      pushToast('error', 'Proceed to payment failed', message)
     }
   }
 
@@ -1085,7 +1412,14 @@ function App(): React.JSX.Element {
                 <input
                   type="checkbox"
                   checked={isBooking}
-                  onChange={(event) => setIsBooking(event.target.checked)}
+                  onChange={(event) => {
+                    const nextChecked = event.target.checked
+                    setIsBooking(nextChecked)
+                    if (!nextChecked) {
+                      setEditingBooking(null)
+                      setSavedBooking(null)
+                    }
+                  }}
                   className="h-4 w-4 rounded border-border/90 bg-[#0f161f] text-primary focus:ring-primary/30"
                 />
                 <span>
@@ -1102,7 +1436,7 @@ function App(): React.JSX.Element {
                 <Input
                   type="date"
                   value={billDate}
-                  onChange={(event) => setBillDate(event.target.value)}
+                  onChange={(event) => handleBillDateChange(event.target.value)}
                   className={cn(
                     inputClassName,
                     'h-7 border-0 bg-transparent px-0 py-0 focus-visible:ring-0'
@@ -1134,264 +1468,206 @@ function App(): React.JSX.Element {
             </div>
           </div>
         </section>
+        <section className="rounded-xl border border-border/90 bg-[linear-gradient(180deg,rgba(11,17,28,0.96),rgba(9,14,22,0.92))] p-2 shadow-[0_18px_40px_rgba(3,9,18,0.2)]">
+          <div className="grid gap-2 md:grid-cols-2">
+            {(
+              [
+                {
+                  id: 'billing',
+                  title: 'Billing Desk',
+                  subtitle: editingBooking
+                    ? 'Continue editing the selected booking in the main form.'
+                    : 'Patient entry, charges, and receipt generation.'
+                },
+                {
+                  id: 'bookings',
+                  title: 'Booking List',
+                  subtitle: 'Review bookings for the selected date and move them into payment.'
+                }
+              ] as Array<{ id: WorkspaceTab; title: string; subtitle: string }>
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => handleWorkspaceTabChange(tab.id)}
+                className={cn(
+                  'rounded-lg border px-4 py-3 text-left transition',
+                  workspaceTab === tab.id
+                    ? 'border-primary/35 bg-primary/10 shadow-[0_12px_28px_rgba(34,211,238,0.14)]'
+                    : 'border-transparent bg-white/[0.025] hover:border-border/90 hover:bg-white/[0.04]'
+                )}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Workspace
+                    </p>
+                    <h2 className="mt-1 text-sm font-semibold text-white">{tab.title}</h2>
+                    <p className="mt-1 text-xs text-slate-400">{tab.subtitle}</p>
+                  </div>
+                  <span
+                    className={cn(
+                      'h-2.5 w-2.5 rounded-full transition',
+                      workspaceTab === tab.id
+                        ? 'bg-primary shadow-[0_0_18px_rgba(34,211,238,0.8)]'
+                        : 'bg-slate-700'
+                    )}
+                  />
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="space-y-4">
-            <SurfaceCard eyebrow="Patient" title="Patient information">
-              <div className="grid gap-x-4 gap-y-4 md:grid-cols-2 xl:grid-cols-3">
-                <SearchBox
-                  label="Name"
-                  field="name"
-                  value={patient.name}
-                  placeholder="Patient name"
-                  results={canShowSearchFeedback ? searchResults : []}
-                  activeField={activeField}
-                  onFocus={setActiveField}
-                  onBlur={() => {
-                    setActiveField(null)
-                    setSearchResults([])
-                    setSearchError('')
-                  }}
-                  onChange={(value) => handlePatientIdentityFieldChange('name', value)}
-                  onSelect={fillPatient}
-                />
-                <SearchBox
-                  label="Telephone"
-                  field="telephone"
-                  value={patient.telephone}
-                  placeholder="Telephone number"
-                  results={canShowSearchFeedback ? searchResults : []}
-                  activeField={activeField}
-                  onFocus={setActiveField}
-                  onBlur={() => {
-                    setActiveField(null)
-                    setSearchResults([])
-                    setSearchError('')
-                  }}
-                  onChange={(value) => handlePatientIdentityFieldChange('telephone', value)}
-                  onSelect={fillPatient}
-                />
-                <div>
-                  <Label>Registration No</Label>
-                  <Input
-                    value={patient.registrationNo}
-                    onChange={(event) => setPatientField('registrationNo', event.target.value)}
-                    placeholder="Registration number"
-                    className={inputClassName}
+        {workspaceTab === 'billing' ? (
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="space-y-4">
+              <SurfaceCard eyebrow="Patient" title="Patient information">
+                <div className="grid gap-x-4 gap-y-4 md:grid-cols-2 xl:grid-cols-3">
+                  <SearchBox
+                    label="Name"
+                    field="name"
+                    value={patient.name}
+                    placeholder="Patient name"
+                    results={canShowSearchFeedback ? searchResults : []}
+                    activeField={activeField}
+                    onFocus={setActiveField}
+                    onBlur={() => {
+                      setActiveField(null)
+                      setSearchResults([])
+                      setSearchError('')
+                    }}
+                    onChange={(value) => handlePatientIdentityFieldChange('name', value)}
+                    onSelect={fillPatient}
                   />
-                </div>
-                <div>
-                  <Label>Email</Label>
-                  <Input
-                    value={patient.email}
-                    onChange={(event) => setPatientField('email', event.target.value)}
-                    placeholder="patient@email.com"
-                    className={inputClassName}
+                  <SearchBox
+                    label="Telephone"
+                    field="telephone"
+                    value={patient.telephone}
+                    placeholder="Telephone number"
+                    results={canShowSearchFeedback ? searchResults : []}
+                    activeField={activeField}
+                    onFocus={setActiveField}
+                    onBlur={() => {
+                      setActiveField(null)
+                      setSearchResults([])
+                      setSearchError('')
+                    }}
+                    onChange={(value) => handlePatientIdentityFieldChange('telephone', value)}
+                    onSelect={fillPatient}
                   />
-                </div>
-                <div className="md:col-span-2 xl:col-span-2">
-                  <Label>Date Of Birth / Age</Label>
-                  <div className="grid gap-3 md:grid-cols-[minmax(0,3fr)_minmax(0,1fr)]">
+                  <div>
+                    <Label>Registration No</Label>
                     <Input
-                      value={patient.dateOfBirth}
-                      onChange={(event) => setPatientDateOfBirth(event.target.value)}
-                      placeholder="DD/MM/YYYY"
-                      className={inputClassName}
-                    />
-                    <Input
-                      value={patient.age}
-                      onChange={(event) => setPatientAge(event.target.value)}
-                      placeholder="Age"
+                      value={patient.registrationNo}
+                      onChange={(event) => setPatientField('registrationNo', event.target.value)}
+                      placeholder="Registration number"
                       className={inputClassName}
                     />
                   </div>
-                </div>
-                <div>
-                  <Label>Gender</Label>
-                  <select
-                    value={patient.gender}
-                    onChange={(event) => setPatientField('gender', event.target.value)}
-                    className={selectClassName}
-                  >
-                    <option value="Male" className="bg-slate-900">
-                      Male
-                    </option>
-                    <option value="Female" className="bg-slate-900">
-                      Female
-                    </option>
-                    <option value="Other" className="bg-slate-900">
-                      Other
-                    </option>
-                  </select>
-                </div>
-                <div className="md:col-span-2 xl:col-span-3">
-                  <Label>Address</Label>
-                  <Input
-                    value={patient.address}
-                    onChange={(event) => setPatientField('address', event.target.value)}
-                    placeholder="Patient address"
-                    className={inputClassName}
-                  />
-                </div>
-                {canShowSearchFeedback && searchError ? (
-                  <div className="md:col-span-2 xl:col-span-3 rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-                    {searchError}
+                  <div>
+                    <Label>Email</Label>
+                    <Input
+                      value={patient.email}
+                      onChange={(event) => setPatientField('email', event.target.value)}
+                      placeholder="patient@email.com"
+                      className={inputClassName}
+                    />
                   </div>
-                ) : null}
-              </div>
-            </SurfaceCard>
+                  <div>
+                    <Label>Date Of Birth / Age</Label>
+                    <div className="grid gap-3 md:grid-cols-[minmax(0,3fr)_minmax(0,1fr)]">
+                      <Input
+                        value={patient.dateOfBirth}
+                        onChange={(event) => setPatientDateOfBirth(event.target.value)}
+                        placeholder="DD/MM/YYYY"
+                        className={inputClassName}
+                      />
+                      <Input
+                        value={patient.age}
+                        onChange={(event) => setPatientAge(event.target.value)}
+                        placeholder="Age"
+                        className={inputClassName}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label>Gender</Label>
+                    <select
+                      value={patient.gender}
+                      onChange={(event) => setPatientField('gender', event.target.value)}
+                      className={selectClassName}
+                    >
+                      <option value="Male" className="bg-slate-900">
+                        Male
+                      </option>
+                      <option value="Female" className="bg-slate-900">
+                        Female
+                      </option>
+                      <option value="Other" className="bg-slate-900">
+                        Other
+                      </option>
+                    </select>
+                  </div>
+                  <div className="md:col-span-2 xl:col-span-3">
+                    <Label>Address</Label>
+                    <Input
+                      value={patient.address}
+                      onChange={(event) => setPatientField('address', event.target.value)}
+                      placeholder="Patient address"
+                      className={inputClassName}
+                    />
+                  </div>
+                  {canShowSearchFeedback && searchError ? (
+                    <div className="md:col-span-2 xl:col-span-3 rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                      {searchError}
+                    </div>
+                  ) : null}
+                </div>
+              </SurfaceCard>
 
-            <SurfaceCard eyebrow="Visit Type" title="Billing operation">
-              <div className="space-y-4">
-                <OperationTabs value={activeOperation} onChange={setActiveOperation} />
-                {recentServicePresets.length > 0 ? (
-                  <div className="space-y-2 rounded-lg border border-border/90 bg-white/2 p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                          Recent Services
-                        </p>
-                        <p className="mt-1 text-xs text-slate-400">
-                          Tap a recent service to bring it back into the current form with its last
-                          used value.
-                        </p>
+              <SurfaceCard eyebrow="Visit Type" title="Billing operation">
+                <div className="space-y-4">
+                  <OperationTabs value={activeOperation} onChange={handleOperationChange} />
+                  {recentServicePresets.length > 0 ? (
+                    <div className="space-y-2 rounded-lg border border-border/90 bg-white/2 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                            Recent Services
+                          </p>
+                          <p className="mt-1 text-xs text-slate-400">
+                            Tap a recent service to bring it back into the current form with its
+                            last used value.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {recentServicePresets.map((preset) => (
+                          <button
+                            key={preset.key}
+                            type="button"
+                            onClick={() => applyRecentServicePreset(preset)}
+                            className="rounded-full border border-border/90 bg-[#111923] px-3 py-1.5 text-xs text-slate-100 transition hover:border-primary/35 hover:bg-primary/10 hover:text-white"
+                          >
+                            {preset.label} · {money(num(preset.amount))}
+                          </button>
+                        ))}
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {recentServicePresets.map((preset) => (
-                        <button
-                          key={preset.key}
-                          type="button"
-                          onClick={() => applyRecentServicePreset(preset)}
-                          className="rounded-full border border-border/90 bg-[#111923] px-3 py-1.5 text-xs text-slate-100 transition hover:border-primary/35 hover:bg-primary/10 hover:text-white"
-                        >
-                          {preset.label} · {money(num(preset.amount))}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-                {activeOperation === 'opd' ? (
-                  <div className="grid gap-x-4 gap-y-3 lg:grid-cols-2">
-                    <div className="lg:col-span-2">
-                      <Label>Doctor</Label>
-                      <select
-                        value={opd.doctorId}
-                        onChange={(event) =>
-                          setOpd((current) =>
-                            applyOpdDoctorDefaults(
-                              current,
-                              Number(event.target.value),
-                              formPreferences.fieldDefaults.opd[Number(event.target.value)]
-                            )
-                          )
-                        }
-                        className={selectClassName}
-                        disabled={doctorLoading || currentDoctorOptions.length === 0}
-                      >
-                        {currentDoctorOptions.map((item) => (
-                          <option key={item.id} value={item.id} className="bg-slate-900">
-                            {item.name} - {item.specialty}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <Label>Doctor Consultation Fee</Label>
-                      <Input
-                        type="number"
-                        value={opd.consultationFee}
-                        onChange={(event) =>
-                          setOpd((current) => ({ ...current, consultationFee: event.target.value }))
-                        }
-                        placeholder="0"
-                        className={inputClassName}
-                      />
-                    </div>
-                    <div>
-                      <Label>OPD Medicine Fee</Label>
-                      <Input
-                        type="number"
-                        value={opd.medicineFee}
-                        onChange={(event) =>
-                          setOpd((current) => ({ ...current, medicineFee: event.target.value }))
-                        }
-                        placeholder="0"
-                        className={inputClassName}
-                      />
-                    </div>
-                  </div>
-                ) : null}
-                {activeOperation === 'channeling' ? (
-                  <div className="grid gap-x-4 gap-y-3 lg:grid-cols-2">
-                    <div className="lg:col-span-2">
-                      <Label>Doctor</Label>
-                      <select
-                        value={channeling.doctorId}
-                        onChange={(event) =>
-                          setChanneling((current) =>
-                            applyChannelingDoctorDefaults(
-                              current,
-                              Number(event.target.value),
-                              formPreferences.fieldDefaults.channeling[Number(event.target.value)]
-                            )
-                          )
-                        }
-                        className={selectClassName}
-                        disabled={doctorLoading || currentDoctorOptions.length === 0}
-                      >
-                        {currentDoctorOptions.map((item) => (
-                          <option key={item.id} value={item.id} className="bg-slate-900">
-                            {item.name} - {item.specialty}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <Label>Doctor Consultation Fee</Label>
-                      <Input
-                        type="number"
-                        value={channeling.consultationFee}
-                        onChange={(event) =>
-                          setChanneling((current) => ({
-                            ...current,
-                            consultationFee: event.target.value
-                          }))
-                        }
-                        placeholder="0"
-                        className={inputClassName}
-                      />
-                    </div>
-                    <div>
-                      <Label>Channeling / Booking Fee</Label>
-                      <Input
-                        type="number"
-                        value={channeling.bookingFee}
-                        onChange={(event) =>
-                          setChanneling((current) => ({
-                            ...current,
-                            bookingFee: event.target.value
-                          }))
-                        }
-                        placeholder="0"
-                        className={inputClassName}
-                      />
-                    </div>
-                  </div>
-                ) : null}
-                {activeOperation === 'dental' ? (
-                  <div className="space-y-4">
-                    <div className="grid gap-x-4 gap-y-3 lg:grid-cols-[1fr_180px]">
-                      <div>
+                  ) : null}
+                  {activeOperation === 'opd' ? (
+                    <div className="grid gap-x-4 gap-y-3 lg:grid-cols-2">
+                      <div className="lg:col-span-2">
                         <Label>Doctor</Label>
                         <select
-                          value={dental.doctorId}
+                          value={opd.doctorId}
                           onChange={(event) =>
-                            setDental((current) =>
-                              applyDentalDoctorDefaults(
+                            setOpd((current) =>
+                              applyOpdDoctorDefaults(
                                 current,
                                 Number(event.target.value),
-                                formPreferences.fieldDefaults.dental[Number(event.target.value)]
+                                formPreferences.fieldDefaults.opd[Number(event.target.value)]
                               )
                             )
                           }
@@ -1406,14 +1682,83 @@ function App(): React.JSX.Element {
                         </select>
                       </div>
                       <div>
-                        <Label>Registration Fee</Label>
+                        <Label>Doctor Consultation Fee</Label>
                         <Input
                           type="number"
-                          value={dental.registrationFee}
+                          value={opd.consultationFee}
                           onChange={(event) =>
-                            setDental((current) => ({
+                            setOpd((current) => ({
                               ...current,
-                              registrationFee: event.target.value
+                              consultationFee: event.target.value
+                            }))
+                          }
+                          placeholder="0"
+                          className={inputClassName}
+                        />
+                      </div>
+                      <div>
+                        <Label>OPD Medicine Fee</Label>
+                        <Input
+                          type="number"
+                          value={opd.medicineFee}
+                          onChange={(event) =>
+                            setOpd((current) => ({ ...current, medicineFee: event.target.value }))
+                          }
+                          placeholder="0"
+                          className={inputClassName}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+                  {activeOperation === 'channeling' ? (
+                    <div className="grid gap-x-4 gap-y-3 lg:grid-cols-2">
+                      <div className="lg:col-span-2">
+                        <Label>Doctor</Label>
+                        <select
+                          value={channeling.doctorId}
+                          onChange={(event) =>
+                            setChanneling((current) =>
+                              applyChannelingDoctorDefaults(
+                                current,
+                                Number(event.target.value),
+                                formPreferences.fieldDefaults.channeling[Number(event.target.value)]
+                              )
+                            )
+                          }
+                          className={selectClassName}
+                          disabled={doctorLoading || currentDoctorOptions.length === 0}
+                        >
+                          {currentDoctorOptions.map((item) => (
+                            <option key={item.id} value={item.id} className="bg-slate-900">
+                              {item.name} - {item.specialty}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <Label>Doctor Consultation Fee</Label>
+                        <Input
+                          type="number"
+                          value={channeling.consultationFee}
+                          onChange={(event) =>
+                            setChanneling((current) => ({
+                              ...current,
+                              consultationFee: event.target.value
+                            }))
+                          }
+                          placeholder="0"
+                          className={inputClassName}
+                        />
+                      </div>
+                      <div>
+                        <Label>Channeling / Booking Fee</Label>
+                        <Input
+                          type="number"
+                          value={channeling.bookingFee}
+                          onChange={(event) =>
+                            setChanneling((current) => ({
+                              ...current,
+                              bookingFee: event.target.value
                             }))
                           }
                           placeholder="0"
@@ -1421,292 +1766,380 @@ function App(): React.JSX.Element {
                         />
                       </div>
                     </div>
-                    <div className="space-y-2.5">
-                      {dental.rows.map((row) => {
-                        const split = splitDental(
-                          num(row.amount),
-                          doctors.find((item) => item.id === dental.doctorId)
-                        )
-                        return (
-                          <div
-                            key={row.id}
-                            className="grid gap-3 rounded-lg border border-border/90 bg-white/2 p-3 lg:grid-cols-[1fr_120px_160px_80px]"
-                          >
-                            <div>
-                              <Label>Label</Label>
-                              <Input
-                                value={row.label}
-                                onChange={(event) =>
-                                  setDental((current) => ({
-                                    ...current,
-                                    rows: current.rows.map((item) =>
-                                      item.id === row.id
-                                        ? { ...item, label: event.target.value }
-                                        : item
-                                    )
-                                  }))
-                                }
-                                placeholder="Treatment name"
-                                className={inputClassName}
-                              />
-                            </div>
-                            <div>
-                              <Label>Charge</Label>
-                              <Input
-                                type="number"
-                                value={row.amount}
-                                onChange={(event) =>
-                                  setDental((current) => ({
-                                    ...current,
-                                    rows: current.rows.map((item) =>
-                                      item.id === row.id
-                                        ? { ...item, amount: event.target.value }
-                                        : item
-                                    )
-                                  }))
-                                }
-                                placeholder="0"
-                                className={inputClassName}
-                              />
-                            </div>
-                            <div className="grid grid-cols-2 gap-1.5 rounded-md border border-border/90 bg-[#111923] p-2">
-                              <div className="space-y-0.5">
-                                <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
-                                  In-house
-                                </p>
-                                <p className="text-[11px] font-semibold text-primary">
-                                  {money(split.inHouse)}
-                                </p>
-                              </div>
-                              <div className="space-y-0.5">
-                                <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
-                                  Referred
-                                </p>
-                                <p className="text-[11px] font-semibold text-slate-100">
-                                  {money(split.referred)}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex items-end">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() =>
-                                  setDental((current) => ({
-                                    ...current,
-                                    rows: current.rows.filter((item) => item.id !== row.id)
-                                  }))
-                                }
-                                disabled={dental.rows.length === 1}
-                                className={cn(softButtonClassName, 'w-full')}
-                              >
-                                Remove
-                              </Button>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() =>
-                        setDental((current) => ({
-                          ...current,
-                          rows: [...current.rows, makeRow('New Dental Charge', '')]
-                        }))
-                      }
-                      className={softButtonClassName}
-                    >
-                      Add Dental Charge
-                    </Button>
-                  </div>
-                ) : null}
-                {activeOperation === 'others' ? (
-                  <div className="space-y-2.5">
-                    <div>
-                      <Label>Doctor</Label>
-                      <select
-                        value={othersDoctorId}
-                        onChange={(event) => setOthersDoctorId(Number(event.target.value))}
-                        className={selectClassName}
-                        disabled={doctorLoading || currentDoctorOptions.length === 0}
-                      >
-                        {currentDoctorOptions.map((item) => (
-                          <option key={item.id} value={item.id} className="bg-slate-900">
-                            {item.name} - {item.specialty}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    {others.map((row) => (
-                      <div
-                        key={row.id}
-                        className="grid gap-3 rounded-lg border border-border/90 bg-white/2 p-3 lg:grid-cols-[1fr_120px_80px]"
-                      >
+                  ) : null}
+                  {activeOperation === 'dental' ? (
+                    <div className="space-y-4">
+                      <div className="grid gap-x-4 gap-y-3 lg:grid-cols-[1fr_180px]">
                         <div>
-                          <Label>Label</Label>
-                          <Input
-                            value={row.label}
+                          <Label>Doctor</Label>
+                          <select
+                            value={dental.doctorId}
                             onChange={(event) =>
-                              setOthers((current) =>
-                                current.map((item) =>
-                                  item.id === row.id ? { ...item, label: event.target.value } : item
+                              setDental((current) =>
+                                applyDentalDoctorDefaults(
+                                  current,
+                                  Number(event.target.value),
+                                  formPreferences.fieldDefaults.dental[Number(event.target.value)]
                                 )
                               )
                             }
-                            placeholder="Report or treatment name"
-                            className={inputClassName}
-                          />
+                            className={selectClassName}
+                            disabled={doctorLoading || currentDoctorOptions.length === 0}
+                          >
+                            {currentDoctorOptions.map((item) => (
+                              <option key={item.id} value={item.id} className="bg-slate-900">
+                                {item.name} - {item.specialty}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                         <div>
-                          <Label>Charge</Label>
+                          <Label>Registration Fee</Label>
                           <Input
                             type="number"
-                            value={row.amount}
+                            value={dental.registrationFee}
                             onChange={(event) =>
-                              setOthers((current) =>
-                                current.map((item) =>
-                                  item.id === row.id
-                                    ? { ...item, amount: event.target.value }
-                                    : item
-                                )
-                              )
+                              setDental((current) => ({
+                                ...current,
+                                registrationFee: event.target.value
+                              }))
                             }
                             placeholder="0"
                             className={inputClassName}
                           />
                         </div>
-                        <div className="flex items-end">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() =>
-                              setOthers((current) => current.filter((item) => item.id !== row.id))
-                            }
-                            disabled={others.length === 1}
-                            className={cn(softButtonClassName, 'w-full')}
-                          >
-                            Remove
-                          </Button>
-                        </div>
                       </div>
-                    ))}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() =>
-                        setOthers((current) => [...current, makeRow('Additional Charge', '')])
-                      }
-                      className={softButtonClassName}
-                    >
-                      Add Charge Row
-                    </Button>
-                  </div>
-                ) : null}
-                {doctorError ? (
-                  <div className="rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-                    {doctorError}
-                  </div>
-                ) : null}
-              </div>
-            </SurfaceCard>
-          </div>
-
-          <aside className="space-y-4">
-            <SurfaceCard eyebrow="Summary" title="Current bill" className="p-3">
-              <div className="space-y-3">
-                <div className="grid gap-2 rounded-lg border border-border/90 bg-[#111923] p-3">
-                  <div className="flex items-center justify-between text-[13px]">
-                    <span className="text-slate-400 font-medium">Patient</span>
-                    <span className="text-slate-100">{patient.name || 'Walk-in'}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[13px]">
-                    <span className="text-slate-400 font-medium">Mode</span>
-                    <span className="text-slate-100">{isBooking ? 'Booking' : 'Bill'}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[13px]">
-                    <span className="text-slate-400 font-medium">Shift</span>
-                    <span className="text-slate-100">{shift}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[13px]">
-                    <span className="text-slate-400 font-medium">Date</span>
-                    <span className="text-slate-100">{billDate}</span>
-                  </div>
-                </div>
-                <div className="space-y-2 rounded-lg border border-border/90 bg-white/2 p-3">
-                  {summary.map((item) => (
-                    <div key={item.label} className="flex items-center justify-between text-[13px]">
-                      <span className="text-slate-400 font-medium">{item.label}</span>
-                      <span className="text-slate-100">{money(item.value)}</span>
-                    </div>
-                  ))}
-                </div>
-                {activeOperation === 'dental' ? (
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded-lg border border-border/90 bg-white/2 p-2.5">
-                      <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
-                        In-house
-                      </p>
-                      <p className="text-sm font-semibold text-primary">
-                        {money(dentalSplit.inHouse)}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-border/90 bg-white/2 p-2.5">
-                      <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
-                        Referred
-                      </p>
-                      <p className="text-sm font-semibold text-slate-100">
-                        {money(dentalSplit.referred)}
-                      </p>
-                    </div>
-                  </div>
-                ) : null}
-                <div className="rounded-lg border border-primary/20 bg-[linear-gradient(180deg,rgba(24,56,74,0.92),rgba(19,46,61,0.96))] p-4 text-center">
-                  <p className="text-[10px] uppercase tracking-widest text-primary font-bold">
-                    Grand Total
-                  </p>
-                  <p className="mt-1 text-2xl font-bold tracking-tight text-white">
-                    {money(total)}
-                  </p>
-                </div>
-                {submitState.status !== 'idle' ? (
-                  <div
-                    className={cn(
-                      'rounded-lg px-3 py-2 text-xs',
-                      submitState.status === 'success'
-                        ? 'border border-emerald-400/25 bg-emerald-500/10 text-emerald-100'
-                        : submitState.status === 'error'
-                          ? 'border border-rose-400/25 bg-rose-500/10 text-rose-100'
-                          : 'border border-primary/20 bg-primary/10 text-primary'
-                    )}
-                  >
-                    {submitState.message}
-                  </div>
-                ) : null}
-                {isBooking && currentSavedBooking ? (
-                  <div className="rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-xs text-primary">
-                    Saved booking
-                    {currentSavedBooking.record.bookingNumber
-                      ? ` #${currentSavedBooking.record.bookingNumber}`
-                      : ''}
-                    {currentSavedBooking.record.reference
-                      ? ` • ${currentSavedBooking.record.reference}`
-                      : ''}
-                  </div>
-                ) : null}
-                {isBooking && !bookingDoctorType ? (
-                  <div className="rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-                    Booking mode currently supports Channeling and Dental visits with the available
-                    public API.
-                  </div>
-                ) : null}
-                <div className="grid gap-2">
-                  {isBooking ? (
-                    <>
+                      <div className="space-y-2.5">
+                        {dental.rows.map((row) => {
+                          const split = splitDental(
+                            num(row.amount),
+                            doctors.find((item) => item.id === dental.doctorId)
+                          )
+                          return (
+                            <div
+                              key={row.id}
+                              className="grid gap-3 rounded-lg border border-border/90 bg-white/2 p-3 lg:grid-cols-[1fr_120px_160px_80px]"
+                            >
+                              <div>
+                                <Label>Label</Label>
+                                <Input
+                                  value={row.label}
+                                  onChange={(event) =>
+                                    setDental((current) => ({
+                                      ...current,
+                                      rows: current.rows.map((item) =>
+                                        item.id === row.id
+                                          ? { ...item, label: event.target.value }
+                                          : item
+                                      )
+                                    }))
+                                  }
+                                  placeholder="Treatment name"
+                                  className={inputClassName}
+                                />
+                              </div>
+                              <div>
+                                <Label>Charge</Label>
+                                <Input
+                                  type="number"
+                                  value={row.amount}
+                                  onChange={(event) =>
+                                    setDental((current) => ({
+                                      ...current,
+                                      rows: current.rows.map((item) =>
+                                        item.id === row.id
+                                          ? { ...item, amount: event.target.value }
+                                          : item
+                                      )
+                                    }))
+                                  }
+                                  placeholder="0"
+                                  className={inputClassName}
+                                />
+                              </div>
+                              <div className="grid grid-cols-2 gap-1.5 rounded-md border border-border/90 bg-[#111923] p-2">
+                                <div className="space-y-0.5">
+                                  <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
+                                    In-house
+                                  </p>
+                                  <p className="text-[11px] font-semibold text-primary">
+                                    {money(split.inHouse)}
+                                  </p>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
+                                    Referred
+                                  </p>
+                                  <p className="text-[11px] font-semibold text-slate-100">
+                                    {money(split.referred)}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-end">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  onClick={() =>
+                                    setDental((current) => ({
+                                      ...current,
+                                      rows: current.rows.filter((item) => item.id !== row.id)
+                                    }))
+                                  }
+                                  disabled={dental.rows.length === 1}
+                                  className={cn(softButtonClassName, 'w-full')}
+                                >
+                                  Remove
+                                </Button>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
                       <Button
                         type="button"
-                        onClick={() => void handleSaveBooking()}
+                        variant="outline"
+                        onClick={() =>
+                          setDental((current) => ({
+                            ...current,
+                            rows: [...current.rows, makeRow('New Dental Charge', '')]
+                          }))
+                        }
+                        className={softButtonClassName}
+                      >
+                        Add Dental Charge
+                      </Button>
+                    </div>
+                  ) : null}
+                  {activeOperation === 'others' ? (
+                    <div className="space-y-2.5">
+                      <div>
+                        <Label>Doctor</Label>
+                        <select
+                          value={othersDoctorId}
+                          onChange={(event) => setOthersDoctorId(Number(event.target.value))}
+                          className={selectClassName}
+                          disabled={doctorLoading || currentDoctorOptions.length === 0}
+                        >
+                          {currentDoctorOptions.map((item) => (
+                            <option key={item.id} value={item.id} className="bg-slate-900">
+                              {item.name} - {item.specialty}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      {others.map((row) => (
+                        <div
+                          key={row.id}
+                          className="grid gap-3 rounded-lg border border-border/90 bg-white/2 p-3 lg:grid-cols-[1fr_120px_80px]"
+                        >
+                          <div>
+                            <Label>Label</Label>
+                            <Input
+                              value={row.label}
+                              onChange={(event) =>
+                                setOthers((current) =>
+                                  current.map((item) =>
+                                    item.id === row.id
+                                      ? { ...item, label: event.target.value }
+                                      : item
+                                  )
+                                )
+                              }
+                              placeholder="Report or treatment name"
+                              className={inputClassName}
+                            />
+                          </div>
+                          <div>
+                            <Label>Charge</Label>
+                            <Input
+                              type="number"
+                              value={row.amount}
+                              onChange={(event) =>
+                                setOthers((current) =>
+                                  current.map((item) =>
+                                    item.id === row.id
+                                      ? { ...item, amount: event.target.value }
+                                      : item
+                                  )
+                                )
+                              }
+                              placeholder="0"
+                              className={inputClassName}
+                            />
+                          </div>
+                          <div className="flex items-end">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() =>
+                                setOthers((current) => current.filter((item) => item.id !== row.id))
+                              }
+                              disabled={others.length === 1}
+                              className={cn(softButtonClassName, 'w-full')}
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() =>
+                          setOthers((current) => [...current, makeRow('Additional Charge', '')])
+                        }
+                        className={softButtonClassName}
+                      >
+                        Add Charge Row
+                      </Button>
+                    </div>
+                  ) : null}
+                  {doctorError ? (
+                    <div className="rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                      {doctorError}
+                    </div>
+                  ) : null}
+                </div>
+              </SurfaceCard>
+            </div>
+
+            <aside className="space-y-4">
+              <SurfaceCard eyebrow="Summary" title="Current bill" className="p-3">
+                <div className="space-y-3">
+                  <div className="grid gap-2 rounded-lg border border-border/90 bg-[#111923] p-3">
+                    <div className="flex items-center justify-between text-[13px]">
+                      <span className="text-slate-400 font-medium">Patient</span>
+                      <span className="text-slate-100">{patient.name || 'Walk-in'}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[13px]">
+                      <span className="text-slate-400 font-medium">Mode</span>
+                      <span className="text-slate-100">{isBooking ? 'Booking' : 'Bill'}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[13px]">
+                      <span className="text-slate-400 font-medium">Shift</span>
+                      <span className="text-slate-100">{shift}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[13px]">
+                      <span className="text-slate-400 font-medium">Date</span>
+                      <span className="text-slate-100">{billDate}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2 rounded-lg border border-border/90 bg-white/2 p-3">
+                    {summary.map((item) => (
+                      <div
+                        key={item.label}
+                        className="flex items-center justify-between text-[13px]"
+                      >
+                        <span className="text-slate-400 font-medium">{item.label}</span>
+                        <span className="text-slate-100">{money(item.value)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {activeOperation === 'dental' ? (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded-lg border border-border/90 bg-white/2 p-2.5">
+                        <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
+                          In-house
+                        </p>
+                        <p className="text-sm font-semibold text-primary">
+                          {money(dentalSplit.inHouse)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-border/90 bg-white/2 p-2.5">
+                        <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
+                          Referred
+                        </p>
+                        <p className="text-sm font-semibold text-slate-100">
+                          {money(dentalSplit.referred)}
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="rounded-lg border border-primary/20 bg-[linear-gradient(180deg,rgba(24,56,74,0.92),rgba(19,46,61,0.96))] p-4 text-center">
+                    <p className="text-[10px] uppercase tracking-widest text-primary font-bold">
+                      Grand Total
+                    </p>
+                    <p className="mt-1 text-2xl font-bold tracking-tight text-white">
+                      {money(total)}
+                    </p>
+                  </div>
+                  {submitState.status !== 'idle' ? (
+                    <div
+                      className={cn(
+                        'rounded-lg px-3 py-2 text-xs',
+                        submitState.status === 'success'
+                          ? 'border border-emerald-400/25 bg-emerald-500/10 text-emerald-100'
+                          : submitState.status === 'error'
+                            ? 'border border-rose-400/25 bg-rose-500/10 text-rose-100'
+                            : 'border border-primary/20 bg-primary/10 text-primary'
+                      )}
+                    >
+                      {submitState.message}
+                    </div>
+                  ) : null}
+                  {isBooking && currentSavedBooking ? (
+                    <div className="rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-xs text-primary">
+                      Saved booking
+                      {currentSavedBooking.record.bookingNumber
+                        ? ` #${currentSavedBooking.record.bookingNumber}`
+                        : ''}
+                      {currentSavedBooking.record.reference
+                        ? ` - ${currentSavedBooking.record.reference}`
+                        : ''}
+                    </div>
+                  ) : null}
+                  {isBooking && editingBooking ? (
+                    <div className="rounded-lg border border-sky-400/20 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">
+                      Editing booking
+                      {editingBooking.reference ? ` - ${editingBooking.reference}` : ''}
+                    </div>
+                  ) : null}
+                  {isBooking && !bookingDoctorType ? (
+                    <div className="rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                      Booking mode currently supports Channeling and Dental visits with the
+                      available public API.
+                    </div>
+                  ) : null}
+                  <div className="grid gap-2">
+                    {isBooking ? (
+                      <>
+                        <Button
+                          type="button"
+                          onClick={() => void handleSaveBooking()}
+                          disabled={
+                            submitState.status === 'loading' ||
+                            doctorLoading ||
+                            doctors.length === 0 ||
+                            currentDoctorOptions.length === 0
+                          }
+                          className="h-10 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-[0_14px_28px_rgba(34,211,238,0.22)] hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
+                        >
+                          {submitState.status === 'loading'
+                            ? editingBooking
+                              ? 'Updating Booking...'
+                              : 'Saving Booking...'
+                            : editingBooking
+                              ? 'Update Booking'
+                              : 'Save Booking'}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => void handlePrintBooking()}
+                          disabled={
+                            submitState.status === 'loading' || !currentSavedBooking || total <= 0
+                          }
+                          className={cn(
+                            'h-10 rounded-md border-border/90 bg-white/4 text-xs font-semibold text-slate-100 hover:bg-white/8 disabled:cursor-not-allowed disabled:opacity-60'
+                          )}
+                        >
+                          Print Bill
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        type="button"
+                        onClick={() => void handleSubmit()}
                         disabled={
                           submitState.status === 'loading' ||
                           doctorLoading ||
@@ -1715,44 +2148,139 @@ function App(): React.JSX.Element {
                         }
                         className="h-10 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-[0_14px_28px_rgba(34,211,238,0.22)] hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
                       >
-                        {submitState.status === 'loading' ? 'Saving Booking...' : 'Save Booking'}
+                        {submitState.status === 'loading'
+                          ? 'Saving And Creating Bill...'
+                          : 'Generate And Print Bill'}
                       </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => void handlePrintBooking()}
-                        disabled={
-                          submitState.status === 'loading' || !currentSavedBooking || total <= 0
-                        }
-                        className={cn(
-                          'h-10 rounded-md border-border/90 bg-white/4 text-xs font-semibold text-slate-100 hover:bg-white/8 disabled:cursor-not-allowed disabled:opacity-60'
-                        )}
-                      >
-                        Print Bill
-                      </Button>
-                    </>
-                  ) : (
-                    <Button
-                      type="button"
-                      onClick={() => void handleSubmit()}
-                      disabled={
-                        submitState.status === 'loading' ||
-                        doctorLoading ||
-                        doctors.length === 0 ||
-                        currentDoctorOptions.length === 0
-                      }
-                      className="h-10 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-[0_14px_28px_rgba(34,211,238,0.22)] hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
-                    >
-                      {submitState.status === 'loading'
-                        ? 'Saving And Creating Bill...'
-                        : 'Generate And Print Bill'}
-                    </Button>
-                  )}
+                    )}
+                  </div>
                 </div>
+              </SurfaceCard>
+            </aside>
+          </div>
+        ) : (
+          <SurfaceCard eyebrow="Bookings" title="Booking list" className="overflow-hidden">
+            <div className="space-y-4">
+              <div className="flex flex-col gap-3 rounded-lg border border-border/90 bg-[#111923] p-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-white">Bookings for {billDate}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Edit a booking in the billing form, delete it, or move it into payment.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={refreshBookingQueue}
+                  className={softButtonClassName}
+                >
+                  {bookingQueueLoading ? 'Refreshing...' : 'Refresh List'}
+                </Button>
               </div>
-            </SurfaceCard>
-          </aside>
-        </div>
+
+              {bookingQueueError ? (
+                <div className="rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                  {bookingQueueError}
+                </div>
+              ) : null}
+
+              <div className="overflow-x-auto rounded-lg border border-border/90 bg-[#0d141e]">
+                <table className="min-w-full divide-y divide-border/90 text-left text-sm">
+                  <thead className="bg-white/[0.03] text-[10px] uppercase tracking-[0.22em] text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">Booking</th>
+                      <th className="px-4 py-3 font-semibold">Patient</th>
+                      <th className="px-4 py-3 font-semibold">Doctor</th>
+                      <th className="px-4 py-3 font-semibold">Amount</th>
+                      <th className="px-4 py-3 font-semibold">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/90">
+                    {bookingQueueLoading ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">
+                          Loading bookings for the selected date...
+                        </td>
+                      </tr>
+                    ) : bookingQueue.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">
+                          No bookings found for {billDate}.
+                        </td>
+                      </tr>
+                    ) : (
+                      bookingQueue.map((booking) => (
+                        <tr key={booking.id} className="align-top">
+                          <td className="px-4 py-3">
+                            <p className="font-medium text-white">
+                              {booking.bookingNumber
+                                ? `#${booking.bookingNumber}`
+                                : booking.reference}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-400">{booking.date}</p>
+                            <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-primary">
+                              {booking.status}
+                            </p>
+                          </td>
+                          <td className="px-4 py-3">
+                            <p className="font-medium text-white">
+                              {booking.patient.name || 'Walk-in'}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-400">
+                              {booking.patient.telephone || 'No telephone'}
+                            </p>
+                          </td>
+                          <td className="px-4 py-3">
+                            <p className="font-medium text-white">{booking.doctor.name}</p>
+                            <p className="mt-1 text-xs text-slate-400">
+                              {booking.doctor.specialty || 'General'}
+                            </p>
+                          </td>
+                          <td className="px-4 py-3">
+                            <p className="font-medium text-white">{money(booking.billAmount)}</p>
+                            <p className="mt-1 text-xs text-slate-400">
+                              {displayShift(booking.shift)} / {booking.serviceType}
+                            </p>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => loadBookingIntoForm(booking)}
+                                className={softButtonClassName}
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => void handleDeleteBooking(booking)}
+                                className={cn(
+                                  softButtonClassName,
+                                  'hover:border-rose-400/35 hover:bg-rose-500/10 hover:text-rose-100'
+                                )}
+                              >
+                                Delete
+                              </Button>
+                              <Button
+                                type="button"
+                                onClick={() => void handleProceedBooking(booking)}
+                                className="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-[0_10px_20px_rgba(34,211,238,0.18)] hover:bg-primary/90"
+                              >
+                                Proceed To Payment
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </SurfaceCard>
+        )}
       </div>
     </main>
   )
