@@ -756,7 +756,7 @@ async function listBookings(date: string): Promise<BookingQueueItem[]> {
       const payload = await apiRequest<unknown>(path, {}, { allowNotFound: true })
       const bookings = normalizeBookingQueue(payload)
       if (bookings.length > 0) {
-        return bookings.filter((item) => item.date === normalizedDate)
+        return bookings.filter((item) => item.date.startsWith(normalizedDate))
       }
     } catch (error) {
       console.warn(`[listBookings] failed attempt for ${path}`, error)

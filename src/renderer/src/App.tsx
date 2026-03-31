@@ -4,6 +4,7 @@ import { OperationTabs, type OperationType } from '@/components/home/operation-t
 import { SurfaceCard } from '@/components/home/surface-card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Modal } from '@/components/ui/modal'
 import { ToastRegion, type ToastItem, type ToastTone } from '@/components/ui/toast-region'
 import { cn } from '@/lib/utils'
 
@@ -104,7 +105,7 @@ interface EditingBookingState {
 
 interface DoctorListOptions {
   date?: string
-  doctorType?: 'opd' | 'specialist' | 'dental' | 'treatment'
+  doctorType?: string | 'opd' | 'specialist' | 'dental' | 'treatment'
 }
 
 interface StoredFieldDefaults {
@@ -456,6 +457,19 @@ function billIdLabel(bill: Record<string, unknown>): string {
   return 'Bill created successfully'
 }
 
+function billIdentifier(bill: Record<string, unknown>): number | null {
+  if (typeof bill.id === 'number') return bill.id
+  if (typeof bill.bill_id === 'number') return bill.bill_id
+  return null
+}
+
+function billReferenceValue(bill: Record<string, unknown>): string {
+  if (typeof bill.bill_reference === 'string') return bill.bill_reference
+  if (typeof bill.reference === 'string') return bill.reference
+  if (typeof bill.uuid === 'string') return bill.uuid
+  return ''
+}
+
 function bookingDoctorTypeForOperation(operation: OperationType): 'specialist' | 'dental' | null {
   if (operation === 'channeling') return 'specialist'
   if (operation === 'dental') return 'dental'
@@ -599,6 +613,8 @@ function App(): React.JSX.Element {
   const [bookingQueueLoading, setBookingQueueLoading] = useState(false)
   const [bookingQueueError, setBookingQueueError] = useState('')
   const [bookingQueueRefreshKey, setBookingQueueRefreshKey] = useState(0)
+  const [proceedingBookingId, setProceedingBookingId] = useState<number | null>(null)
+  const [paymentPromptBooking, setPaymentPromptBooking] = useState<BookingQueueItem | null>(null)
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [opd, setOpd] = useState({ doctorId: 0, consultationFee: '', medicineFee: '' })
   const [channeling, setChanneling] = useState({
@@ -1363,7 +1379,20 @@ function App(): React.JSX.Element {
     }
   }
 
-  const handleProceedBooking = async (booking: BookingQueueItem): Promise<void> => {
+  const clearBookingFromWorkspace = (bookingId: number): void => {
+    setBookingQueue((current) => current.filter((item) => item.id !== bookingId))
+    if (editingBooking?.id === bookingId) {
+      setEditingBooking(null)
+      setSavedBooking(null)
+      setIsBooking(false)
+    }
+  }
+
+  const handleProceedBooking = async (
+    booking: BookingQueueItem,
+    shouldPrint: boolean
+  ): Promise<void> => {
+    setProceedingBookingId(booking.id)
     try {
       const result = await api.proceedBookingToPayment({
         id: booking.id,
@@ -1373,22 +1402,115 @@ function App(): React.JSX.Element {
         systemAmount: booking.systemAmount,
         items: booking.items
       })
-      setBookingQueue((current) => current.filter((item) => item.id !== booking.id))
-      if (editingBooking?.id === booking.id) {
-        setEditingBooking(null)
-        setSavedBooking(null)
-        setIsBooking(false)
+
+      clearBookingFromWorkspace(booking.id)
+
+      if (shouldPrint) {
+        const receiptBillId = billIdentifier(result.bill)
+
+        if (!receiptBillId) {
+          throw new Error('Booking moved to payment, but no printable bill id was returned.')
+        }
+
+        await api.printReceipt({
+          billId: receiptBillId,
+          billReference: billReferenceValue(result.bill),
+          patientName: booking.patient.name,
+          doctorName: booking.doctor.name,
+          paymentType: booking.paymentType,
+          items: booking.items,
+          total: booking.billAmount
+        })
+
+        const printMessage = booking.reference
+          ? `Moved ${booking.reference} to payment and printed the bill`
+          : 'Booking moved to payment and bill printed'
+        pushToast('success', 'Payment completed', printMessage)
+      } else {
+        pushToast('success', 'Moved to payment', result.message)
       }
-      pushToast('success', 'Moved to payment', result.message)
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to move booking to payment'
+      const fallbackMessage = shouldPrint
+        ? 'Failed to move booking to payment and print the bill'
+        : 'Failed to move booking to payment'
+      const message = error instanceof Error ? error.message : fallbackMessage
       pushToast('error', 'Proceed to payment failed', message)
+    } finally {
+      setProceedingBookingId(null)
+      setPaymentPromptBooking(null)
     }
   }
 
   return (
     <main className="min-h-screen p-4 text-white sm:p-5">
       <ToastRegion toasts={toasts} onDismiss={dismissToast} />
+      <Modal
+        isOpen={paymentPromptBooking !== null}
+        onClose={() => {
+          if (proceedingBookingId === null) {
+            setPaymentPromptBooking(null)
+          }
+        }}
+        title="Proceed To Payment"
+      >
+        {paymentPromptBooking ? (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <p className="text-sm text-slate-100">
+                Move{' '}
+                <span className="font-semibold text-white">
+                  {paymentPromptBooking.bookingNumber
+                    ? `booking #${paymentPromptBooking.bookingNumber}`
+                    : paymentPromptBooking.reference || 'this booking'}
+                </span>{' '}
+                into payment?
+              </p>
+              <p className="text-xs text-slate-400">
+                After payment starts, would you like to print the bill as well?
+              </p>
+            </div>
+            <div className="rounded-lg border border-border/90 bg-[#101924] px-3 py-2 text-xs text-slate-300">
+              <p className="font-medium text-white">
+                {paymentPromptBooking.patient.name || 'Walk-in'}
+              </p>
+              <p className="mt-1 text-slate-400">
+                {paymentPromptBooking.doctor.name} · {money(paymentPromptBooking.billAmount)}
+              </p>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setPaymentPromptBooking(null)}
+                disabled={proceedingBookingId !== null}
+                className={softButtonClassName}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void handleProceedBooking(paymentPromptBooking, false)}
+                disabled={proceedingBookingId !== null}
+                className={cn(
+                  softButtonClassName,
+                  'border-primary/25 bg-primary/5 text-slate-100 hover:bg-primary/12'
+                )}
+              >
+                {proceedingBookingId !== null ? 'Processing...' : 'No, Continue Without Print'}
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void handleProceedBooking(paymentPromptBooking, true)}
+                disabled={proceedingBookingId !== null}
+                className="h-9 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground shadow-[0_10px_20px_rgba(34,211,238,0.18)] hover:bg-primary/90"
+              >
+                {proceedingBookingId !== null ? 'Printing...' : 'Yes, Print Bill'}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
       <div className="mx-auto flex max-w-6xl flex-col gap-4">
         <section className="relative overflow-hidden rounded-xl border border-border/90 bg-[linear-gradient(180deg,rgba(12,19,30,0.98),rgba(16,25,39,0.94))] p-4 shadow-[0_24px_50px_rgba(3,9,18,0.3)]">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.12),transparent_32%)]" />
@@ -2265,10 +2387,13 @@ function App(): React.JSX.Element {
                               </Button>
                               <Button
                                 type="button"
-                                onClick={() => void handleProceedBooking(booking)}
+                                onClick={() => setPaymentPromptBooking(booking)}
+                                disabled={proceedingBookingId !== null}
                                 className="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-[0_10px_20px_rgba(34,211,238,0.18)] hover:bg-primary/90"
                               >
-                                Proceed To Payment
+                                {proceedingBookingId === booking.id
+                                  ? 'Processing...'
+                                  : 'Proceed To Payment'}
                               </Button>
                             </div>
                           </td>
