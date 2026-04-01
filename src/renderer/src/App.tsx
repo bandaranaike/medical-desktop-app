@@ -12,7 +12,6 @@ type Shift = 'Morning' | 'Evening'
 type SearchField = 'name' | 'telephone'
 type WorkspaceTab = 'billing' | 'bookings' | 'summary'
 type SummaryShift = 'morning' | 'evening'
-type SummaryAction = SummaryShift | 'day'
 
 interface PatientInfo {
   id: number | null
@@ -643,7 +642,7 @@ function App(): React.JSX.Element {
   const [bookingQueueRefreshKey, setBookingQueueRefreshKey] = useState(0)
   const [summaryPrintState, setSummaryPrintState] = useState<{
     status: 'idle' | 'loading' | 'success' | 'error'
-    action: SummaryAction | null
+    action: SummaryShift | null
     message: string
   }>({
     status: 'idle',
@@ -1513,40 +1512,6 @@ function App(): React.JSX.Element {
         message
       })
       pushToast('error', `${summaryShiftLabel(shiftToPrint)} report failed`, message)
-    }
-  }
-
-  const handlePrintDaySummary = async (): Promise<void> => {
-    setSummaryPrintState({
-      status: 'loading',
-      action: 'day',
-      message: 'Printing morning and evening reports...'
-    })
-
-    try {
-      const results = await api.printDaySummary(billDate)
-      const emptyShifts = results
-        .filter((result) => result.report.items.length === 0)
-        .map((result) => summaryShiftLabel(result.shift).toLowerCase())
-      const message =
-        emptyShifts.length > 0
-          ? `Day summary printed for ${billDate}. Empty shifts: ${emptyShifts.join(', ')}.`
-          : `Day summary printed for ${billDate}.`
-
-      setSummaryPrintState({
-        status: 'success',
-        action: 'day',
-        message
-      })
-      pushToast('success', 'Day summary printed', message)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to print day summary'
-      setSummaryPrintState({
-        status: 'error',
-        action: 'day',
-        message
-      })
-      pushToast('error', 'Day summary failed', message)
     }
   }
 
@@ -2526,12 +2491,11 @@ function App(): React.JSX.Element {
                 <div className="rounded-lg border border-border/90 bg-[#111923] p-4">
                   <p className="text-sm font-semibold text-white">Print service totals for {billDate}</p>
                   <p className="mt-1 text-xs text-slate-400">
-                    Use the selected date above to print the morning report, evening report, or the
-                    full day summary.
+                    Use the selected date above to print the morning or evening report.
                   </p>
                 </div>
 
-                <div className="grid gap-3 lg:grid-cols-3">
+                <div className="grid gap-3 lg:grid-cols-2">
                   <Button
                     type="button"
                     onClick={() => void handlePrintShiftSummary('morning')}
@@ -2555,27 +2519,6 @@ function App(): React.JSX.Element {
                       ? 'Printing Evening Report...'
                       : 'Print Evening Report'}
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => void handlePrintDaySummary()}
-                    disabled={summaryPrintState.status === 'loading'}
-                    className="h-12 rounded-md border-primary/25 bg-primary/8 text-xs font-semibold text-slate-100 hover:bg-primary/14 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {summaryPrintState.status === 'loading' && summaryPrintState.action === 'day'
-                      ? 'Printing Day Summary...'
-                      : 'Print Day Summary'}
-                  </Button>
-                </div>
-
-                <div className="rounded-lg border border-border/90 bg-white/2 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Day Summary Behavior
-                  </p>
-                  <p className="mt-2 text-sm text-slate-200">
-                    Day summary prints the morning and evening reports back-to-back for the selected
-                    date.
-                  </p>
                 </div>
               </div>
             </SurfaceCard>
@@ -2604,10 +2547,6 @@ function App(): React.JSX.Element {
                         {
                           label: 'Evening report',
                           value: 'Print the selected date using the evening shift summary.'
-                        },
-                        {
-                          label: 'Day summary',
-                          value: 'Run both morning and evening summary prints in sequence.'
                         }
                       ] as Array<{ label: string; value: string }>
                     ).map((item) => (

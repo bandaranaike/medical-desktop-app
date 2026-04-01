@@ -1,6 +1,8 @@
 import { config as loadEnv } from 'dotenv'
 import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
+import { createConnection } from 'net'
 
 // Disable Autofill in DevTools to avoid noise in the console
 app.commandLine.appendSwitch('disable-features', 'AutofillServerCommunication')
@@ -22,11 +24,15 @@ const DEFAULT_RUNTIME_CONFIG = [
   'API_KEY=',
   'API_REFERER=http://test-b.local',
   'API_AUTH_TOKEN=',
-  'PRINTER_BASE_URL=http://0.0.0.0:5000',
+  '# Optional override. When set, PRINTER_PORT is still applied to this host.',
+  'PRINTER_BASE_URL=http://127.0.0.1',
+  'PRINTER_PORT=5000',
+  'PRINTER_FOLDER=',
   ''
 ].join('\n')
 
 let createdRuntimeConfigPath: string | null = null
+let printerServiceProcess: ChildProcessWithoutNullStreams | null = null
 
 function getRuntimeConfigPath(): string {
   return join(app.getPath('userData'), RUNTIME_CONFIG_FILE_NAME)
@@ -34,6 +40,14 @@ function getRuntimeConfigPath(): string {
 
 function getConfigSourceLabel(): string {
   return app.isPackaged ? getRuntimeConfigPath() : '.env'
+}
+
+function getDefaultPrinterFolderPath(): string {
+  if (app.isPackaged) {
+    return join(dirname(app.getAppPath()), 'app.asar.unpacked', '.ai', 'resources', 'printer')
+  }
+
+  return join(app.getAppPath(), '.ai', 'resources', 'printer')
 }
 
 function ensureRuntimeConfigFile(): void {
@@ -241,6 +255,12 @@ type AppNotification = {
   message: string
 }
 
+type PrinterConfig = {
+  baseUrl: string
+  folderPath: string
+  port: number
+}
+
 const APP_NOTIFICATION_CHANNEL = 'app:notification'
 
 function getUnknownErrorMessage(error: unknown): string {
@@ -328,14 +348,143 @@ function getApiConfig(): {
   }
 }
 
-function getPrinterBaseUrl(): string {
-  const baseUrl = process.env['PRINTER_BASE_URL']?.trim()
-
-  if (!baseUrl) {
-    throw new Error(`Missing printer configuration in ${getConfigSourceLabel()}: PRINTER_BASE_URL`)
+function parsePort(value: string | undefined, fallback: number): number {
+  const parsed = Number(value?.trim())
+  if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 65535) {
+    return fallback
   }
 
-  return baseUrl.replace(/\/+$/, '')
+  return parsed
+}
+
+function getPrinterConfig(): PrinterConfig {
+  const baseUrlOverride = process.env['PRINTER_BASE_URL']?.trim()
+  const port = parsePort(process.env['PRINTER_PORT'], 5000)
+  const folderPath = process.env['PRINTER_FOLDER']?.trim() || getDefaultPrinterFolderPath()
+
+  let baseUrl = `http://127.0.0.1:${port}`
+
+  if (baseUrlOverride) {
+    try {
+      const url = new URL(baseUrlOverride)
+      url.port = String(port)
+      baseUrl = url.origin
+    } catch {
+      baseUrl = baseUrlOverride.replace(/\/+$/, '')
+    }
+  }
+
+  if (!existsSync(folderPath)) {
+    throw new Error(
+      `Printer folder not found in ${getConfigSourceLabel()}: ${folderPath}. Set PRINTER_FOLDER to the folder containing printer-run.py.`
+    )
+  }
+
+  return {
+    baseUrl: baseUrl.replace(/\/+$/, ''),
+    folderPath,
+    port
+  }
+}
+
+function getPrinterBaseUrl(): string {
+  return getPrinterConfig().baseUrl
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isPortOpen(port: number, host = '127.0.0.1', timeoutMs = 300): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ port, host })
+
+    const finalize = (value: boolean): void => {
+      socket.removeAllListeners()
+      socket.destroy()
+      resolve(value)
+    }
+
+    socket.setTimeout(timeoutMs)
+    socket.once('connect', () => finalize(true))
+    socket.once('timeout', () => finalize(false))
+    socket.once('error', () => finalize(false))
+  })
+}
+
+async function waitForPort(port: number, attempts = 30, delayMs = 250): Promise<boolean> {
+  for (let index = 0; index < attempts; index += 1) {
+    if (await isPortOpen(port)) {
+      return true
+    }
+
+    await delay(delayMs)
+  }
+
+  return false
+}
+
+async function ensurePrinterServiceRunning(): Promise<void> {
+  const config = getPrinterConfig()
+
+  if (await isPortOpen(config.port)) {
+    return
+  }
+
+  const entryPoint = join(config.folderPath, 'printer-run.py')
+
+  if (!existsSync(entryPoint)) {
+    throw new Error(
+      `Printer startup script not found at ${entryPoint}. Update PRINTER_FOLDER to the folder containing printer-run.py.`
+    )
+  }
+
+  printerServiceProcess = spawn('python', ['printer-run.py'], {
+    cwd: config.folderPath,
+    env: {
+      ...process.env,
+      PRINTER_PORT: String(config.port)
+    },
+    stdio: 'pipe',
+    windowsHide: true
+  })
+
+  printerServiceProcess.stdout.on('data', (chunk) => {
+    console.log(`[printer-service] ${String(chunk).trim()}`)
+  })
+
+  printerServiceProcess.stderr.on('data', (chunk) => {
+    console.error(`[printer-service] ${String(chunk).trim()}`)
+  })
+
+  printerServiceProcess.once('error', (error) => {
+    reportAppError('Start printer service', error, {
+      title: 'Printer service failed to start'
+    })
+  })
+
+  printerServiceProcess.once('exit', (code, signal) => {
+    const exitedDuringStartup = code !== 0 || signal !== null
+    printerServiceProcess = null
+
+    if (exitedDuringStartup) {
+      reportAppError(
+        'Printer service exited',
+        new Error(`Printer service exited with code ${code ?? 'null'} and signal ${signal ?? 'null'}`),
+        {
+          title: 'Printer service stopped'
+        }
+      )
+    }
+  })
+
+  const started = await waitForPort(config.port)
+
+  if (!started) {
+    throw new Error(
+      `Printer service did not become ready on port ${config.port}. Check Python and the printer folder path.`
+    )
+  }
 }
 
 async function apiRequest<T>(
@@ -945,9 +1094,15 @@ function normalizeDaySummaryReport(payload: unknown, requestedDate: string): Day
 
 async function fetchDaySummaryReport(date: string, shift: SummaryShift): Promise<DaySummaryReport> {
   const normalizedDate = date.trim()
-  const payload = await apiRequest<unknown>(
-    `/api/reports/day-summary?date=${encodeURIComponent(normalizedDate)}&shift=${encodeURIComponent(shift)}`
+  console.log(
+    'API endpoint',
+    `/api/public/reports/day-summary?date=${encodeURIComponent(normalizedDate)}&shift=${encodeURIComponent(shift)}`
   )
+  const payload = await apiRequest<unknown>(
+    `/api/public/reports/day-summary?date=${encodeURIComponent(normalizedDate)}&shift=${encodeURIComponent(shift)}`
+  )
+
+  console.log("Payload day summary", payload)
 
   return normalizeDaySummaryReport(payload, normalizedDate)
 }
@@ -1149,6 +1304,9 @@ handlePromiseError(
     })
 
     createWindow()
+    handlePromiseError(ensurePrinterServiceRunning(), 'Start printer service', {
+      title: 'Printer service unavailable'
+    })
 
     app.on('activate', function () {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -1159,6 +1317,11 @@ handlePromiseError(
 )
 
 app.on('window-all-closed', () => {
+  if (printerServiceProcess && !printerServiceProcess.killed) {
+    printerServiceProcess.kill()
+    printerServiceProcess = null
+  }
+
   if (process.platform !== 'darwin') {
     app.quit()
   }

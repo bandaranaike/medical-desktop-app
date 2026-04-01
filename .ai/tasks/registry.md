@@ -6,6 +6,7 @@ This is the current structured task index for `.ai/tasks/`.
 | --- | --- | --- | --- | --- |
 | TASK-001 | done | Knowledge Center Restructure | `.ai/tasks/done/knowledge-center-restructure.md` | organized `.ai/`, added inbox and status tracking on 2026-04-01 |
 | TASK-002 | done | Summary Print Tab And Day Reports | `.ai/tasks/done/summary-print-tab-and-day-reports.md` | implemented and verified on 2026-04-01 |
+| TASK-003 | done | Automatic Printer Service Startup | `.ai/tasks/done/automatic-printer-service-startup.md` | implemented with configurable printer folder and port on 2026-04-01 |
 | TASK-101 | triage | Billing Form Behavior | `.ai/tasks/triage/billing-form-behavior.md` | older task note needs review |
 | TASK-102 | triage | Booking Flow And Bill Actions | `.ai/tasks/triage/booking-flow-and-bill-actions.md` | older task note needs review |
 | TASK-103 | triage | Booking Workspace Tabs And List Actions | `.ai/tasks/triage/booking-workspace-tabs-and-list-actions.md` | older task note needs review |
