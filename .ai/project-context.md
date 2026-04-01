@@ -43,13 +43,16 @@
   - date and shift selection
   - operation tabs: OPD, Channeling, Dental, Others
   - operation-specific billing inputs
-  - summary and print action
+  - summary and billing actions
+  - a tabbed workspace for Billing Desk and Booking List
 - Patient lookup is implemented through preload IPC and Prisma search.
 - Search supports `name`, `email`, `telephone`, and `registrationNo` through the current backend search handler.
 - Future patient search, autofill, and bill creation work should prefer the API when suitable routes exist.
 - Doctor data shown on the home page is currently temporary UI-side seed data, not persisted database data.
 - Dental charges support in-house and referred split calculations in the UI.
-- Print currently uses `window.print()`.
+- Bill printing is routed through the Electron main/preload boundary to the local printer service.
+- The Booking List supports edit, delete, and proceed-to-payment actions for the selected date.
+- Proceed-to-payment now opens a popup asking whether to print, and the print-confirmed path reuses the same receipt printer flow used by `Generate And Print Bill` in the Billing Desk.
 
 ## Requirement alignment guidance
 

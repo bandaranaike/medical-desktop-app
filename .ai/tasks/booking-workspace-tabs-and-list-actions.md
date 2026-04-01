@@ -16,6 +16,9 @@ Introduce a tabbed workspace between the top header area and the lower content s
   - delete
   - proceed to payment
 - define proceed-to-payment as converting the booking into a payable bill and removing it from the booking list once successful
+- show a confirmation popup before proceed-to-payment finishes
+- ask the operator whether the bill should be printed immediately after moving the booking into payment
+- if the operator confirms printing, reuse the same receipt printer flow used by `Generate And Print Bill` in the billing desk
 
 ## Constraints
 
@@ -45,3 +48,4 @@ Introduce a tabbed workspace between the top header area and the lower content s
 - the middle tab/menu exists and matches the intended placement between the header and content areas
 - operators can switch between billing entry and the booking list without losing context unexpectedly
 - the booking list loads by date, defaults to today, and supports edit/delete/proceed-to-payment actions with clear feedback
+- proceed-to-payment presents a print decision popup and can finish with or without immediate printing
