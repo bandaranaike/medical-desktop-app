@@ -21,6 +21,8 @@ This is the current structured task index for `.ai/tasks/`.
 | TASK-112 | triage | UI Polish Spacing | `.ai/tasks/triage/ui-polish-spacing.md` | older task note needs review |
 | TASK-113 | triage | Visit Type Defaults And Service Presets | `.ai/tasks/triage/visit-type-defaults-and-service-presets.md` | older task note needs review |
 | TASK-114 | triage | Windows Runtime Config | `.ai/tasks/triage/windows-runtime-config.md` | older task note needs review |
+| TASK-115 | planned | Billing Desk Dynamic Services And Split Pricing | `.ai/tasks/planned/billing-desk-dynamic-services-and-split-pricing.md` | created from raw billing desk notes on 2026-04-01 |
+| TASK-116 | planned | Backend API Contract For Billing Services | `.ai/tasks/planned/backend-api-contract-for-billing-services.md` | created from raw billing/API notes on 2026-04-01 |
 
 ## Notes
 
