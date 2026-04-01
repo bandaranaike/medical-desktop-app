@@ -159,6 +159,26 @@ type PrintPayload = {
   total: number
 }
 
+type SummaryShift = 'morning' | 'evening'
+
+type DaySummaryItem = {
+  service_name: string
+  quantity: number
+  total: number
+}
+
+type DaySummaryReport = {
+  start_date: string
+  end_date: string
+  items: DaySummaryItem[]
+}
+
+type SummaryPrintResult = {
+  shift: SummaryShift
+  report: DaySummaryReport
+  print: Record<string, unknown>
+}
+
 type AppNotification = {
   level: 'error' | 'warning' | 'info' | 'success'
   title: string
@@ -195,6 +215,12 @@ const api = {
     ipcRenderer.invoke('booking:proceed-to-payment', payload),
   printReceipt: (payload: PrintPayload): Promise<Record<string, unknown>> =>
     ipcRenderer.invoke('receipt:print', payload),
+  printSummaryReport: (payload: {
+    date: string
+    shift: SummaryShift
+  }): Promise<SummaryPrintResult> => ipcRenderer.invoke('summary-report:print', payload),
+  printDaySummary: (date: string): Promise<SummaryPrintResult[]> =>
+    ipcRenderer.invoke('summary-report:print-day', date),
   onAppNotification: (callback: (notification: AppNotification) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, notification: AppNotification): void => {
       callback(notification)

@@ -10,7 +10,9 @@ import { cn } from '@/lib/utils'
 
 type Shift = 'Morning' | 'Evening'
 type SearchField = 'name' | 'telephone'
-type WorkspaceTab = 'billing' | 'bookings'
+type WorkspaceTab = 'billing' | 'bookings' | 'summary'
+type SummaryShift = 'morning' | 'evening'
+type SummaryAction = SummaryShift | 'day'
 
 interface PatientInfo {
   id: number | null
@@ -63,6 +65,24 @@ interface AppNotification {
   level: ToastTone
   title: string
   message: string
+}
+
+interface DaySummaryItem {
+  service_name: string
+  quantity: number
+  total: number
+}
+
+interface DaySummaryReport {
+  start_date: string
+  end_date: string
+  items: DaySummaryItem[]
+}
+
+interface SummaryPrintResult {
+  shift: SummaryShift
+  report: DaySummaryReport
+  print: Record<string, unknown>
 }
 
 interface BookingRecord {
@@ -185,6 +205,11 @@ type RendererApi = {
     items: PrintLineItem[]
     total: number
   }) => Promise<Record<string, unknown>>
+  printSummaryReport: (payload: {
+    date: string
+    shift: SummaryShift
+  }) => Promise<SummaryPrintResult>
+  printDaySummary: (date: string) => Promise<SummaryPrintResult[]>
   onAppNotification: (callback: (notification: AppNotification) => void) => () => void
 }
 
@@ -217,6 +242,9 @@ const num = (value: string): number => {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
 }
+
+const summaryShiftLabel = (shift: SummaryShift): string =>
+  shift === 'morning' ? 'Morning' : 'Evening'
 
 function splitDental(amount: number, doctor?: DoctorOption): { inHouse: number; referred: number } {
   if (!doctor || amount <= 0) return { inHouse: 0, referred: amount }
@@ -613,6 +641,15 @@ function App(): React.JSX.Element {
   const [bookingQueueLoading, setBookingQueueLoading] = useState(false)
   const [bookingQueueError, setBookingQueueError] = useState('')
   const [bookingQueueRefreshKey, setBookingQueueRefreshKey] = useState(0)
+  const [summaryPrintState, setSummaryPrintState] = useState<{
+    status: 'idle' | 'loading' | 'success' | 'error'
+    action: SummaryAction | null
+    message: string
+  }>({
+    status: 'idle',
+    action: null,
+    message: ''
+  })
   const [proceedingBookingId, setProceedingBookingId] = useState<number | null>(null)
   const [paymentPromptBooking, setPaymentPromptBooking] = useState<BookingQueueItem | null>(null)
   const [toasts, setToasts] = useState<ToastItem[]>([])
@@ -646,6 +683,9 @@ function App(): React.JSX.Element {
     setDoctorLoading(true)
     if (workspaceTab === 'bookings') {
       setBookingQueueLoading(true)
+    }
+    if (summaryPrintState.status !== 'idle') {
+      setSummaryPrintState({ status: 'idle', action: null, message: '' })
     }
     setBillDate(value)
   }
@@ -1441,6 +1481,75 @@ function App(): React.JSX.Element {
     }
   }
 
+  const handlePrintShiftSummary = async (shiftToPrint: SummaryShift): Promise<void> => {
+    setSummaryPrintState({
+      status: 'loading',
+      action: shiftToPrint,
+      message: `Printing ${summaryShiftLabel(shiftToPrint).toLowerCase()} report...`
+    })
+
+    try {
+      const result = await api.printSummaryReport({
+        date: billDate,
+        shift: shiftToPrint
+      })
+      const hasItems = result.report.items.length > 0
+      const message = hasItems
+        ? `${summaryShiftLabel(shiftToPrint)} report printed for ${billDate}.`
+        : `${summaryShiftLabel(shiftToPrint)} report printed for ${billDate} with no sales for that shift.`
+
+      setSummaryPrintState({
+        status: 'success',
+        action: shiftToPrint,
+        message
+      })
+      pushToast('success', `${summaryShiftLabel(shiftToPrint)} report printed`, message)
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : `Failed to print ${shiftToPrint} report`
+      setSummaryPrintState({
+        status: 'error',
+        action: shiftToPrint,
+        message
+      })
+      pushToast('error', `${summaryShiftLabel(shiftToPrint)} report failed`, message)
+    }
+  }
+
+  const handlePrintDaySummary = async (): Promise<void> => {
+    setSummaryPrintState({
+      status: 'loading',
+      action: 'day',
+      message: 'Printing morning and evening reports...'
+    })
+
+    try {
+      const results = await api.printDaySummary(billDate)
+      const emptyShifts = results
+        .filter((result) => result.report.items.length === 0)
+        .map((result) => summaryShiftLabel(result.shift).toLowerCase())
+      const message =
+        emptyShifts.length > 0
+          ? `Day summary printed for ${billDate}. Empty shifts: ${emptyShifts.join(', ')}.`
+          : `Day summary printed for ${billDate}.`
+
+      setSummaryPrintState({
+        status: 'success',
+        action: 'day',
+        message
+      })
+      pushToast('success', 'Day summary printed', message)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to print day summary'
+      setSummaryPrintState({
+        status: 'error',
+        action: 'day',
+        message
+      })
+      pushToast('error', 'Day summary failed', message)
+    }
+  }
+
   return (
     <main className="min-h-screen p-4 text-white sm:p-5">
       <ToastRegion toasts={toasts} onDismiss={dismissToast} />
@@ -1591,7 +1700,7 @@ function App(): React.JSX.Element {
           </div>
         </section>
         <section className="rounded-xl border border-border/90 bg-[linear-gradient(180deg,rgba(11,17,28,0.96),rgba(9,14,22,0.92))] p-2 shadow-[0_18px_40px_rgba(3,9,18,0.2)]">
-          <div className="grid gap-2 md:grid-cols-2">
+          <div className="grid gap-2 md:grid-cols-3">
             {(
               [
                 {
@@ -1605,6 +1714,11 @@ function App(): React.JSX.Element {
                   id: 'bookings',
                   title: 'Booking List',
                   subtitle: 'Review bookings for the selected date and move them into payment.'
+                },
+                {
+                  id: 'summary',
+                  title: 'Summary Prints',
+                  subtitle: 'Print morning, evening, or full-day service summaries for the date.'
                 }
               ] as Array<{ id: WorkspaceTab; title: string; subtitle: string }>
             ).map((tab) => (
@@ -2280,7 +2394,7 @@ function App(): React.JSX.Element {
               </SurfaceCard>
             </aside>
           </div>
-        ) : (
+        ) : workspaceTab === 'bookings' ? (
           <SurfaceCard eyebrow="Bookings" title="Booking list" className="overflow-hidden">
             <div className="space-y-4">
               <div className="flex flex-col gap-3 rounded-lg border border-border/90 bg-[#111923] p-3 md:flex-row md:items-center md:justify-between">
@@ -2405,6 +2519,132 @@ function App(): React.JSX.Element {
               </div>
             </div>
           </SurfaceCard>
+        ) : (
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <SurfaceCard eyebrow="Reports" title="Summary prints" className="overflow-hidden">
+              <div className="space-y-4">
+                <div className="rounded-lg border border-border/90 bg-[#111923] p-4">
+                  <p className="text-sm font-semibold text-white">Print service totals for {billDate}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Use the selected date above to print the morning report, evening report, or the
+                    full day summary.
+                  </p>
+                </div>
+
+                <div className="grid gap-3 lg:grid-cols-3">
+                  <Button
+                    type="button"
+                    onClick={() => void handlePrintShiftSummary('morning')}
+                    disabled={summaryPrintState.status === 'loading'}
+                    className="h-12 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-[0_14px_28px_rgba(34,211,238,0.22)] hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {summaryPrintState.status === 'loading' &&
+                    summaryPrintState.action === 'morning'
+                      ? 'Printing Morning Report...'
+                      : 'Print Morning Report'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void handlePrintShiftSummary('evening')}
+                    disabled={summaryPrintState.status === 'loading'}
+                    className="h-12 rounded-md border-border/90 bg-white/4 text-xs font-semibold text-slate-100 hover:bg-white/8 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {summaryPrintState.status === 'loading' &&
+                    summaryPrintState.action === 'evening'
+                      ? 'Printing Evening Report...'
+                      : 'Print Evening Report'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void handlePrintDaySummary()}
+                    disabled={summaryPrintState.status === 'loading'}
+                    className="h-12 rounded-md border-primary/25 bg-primary/8 text-xs font-semibold text-slate-100 hover:bg-primary/14 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {summaryPrintState.status === 'loading' && summaryPrintState.action === 'day'
+                      ? 'Printing Day Summary...'
+                      : 'Print Day Summary'}
+                  </Button>
+                </div>
+
+                <div className="rounded-lg border border-border/90 bg-white/2 p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Day Summary Behavior
+                  </p>
+                  <p className="mt-2 text-sm text-slate-200">
+                    Day summary prints the morning and evening reports back-to-back for the selected
+                    date.
+                  </p>
+                </div>
+              </div>
+            </SurfaceCard>
+
+            <aside className="space-y-4">
+              <SurfaceCard eyebrow="Status" title="Print queue" className="p-3">
+                <div className="space-y-3">
+                  <div className="grid gap-2 rounded-lg border border-border/90 bg-[#111923] p-3">
+                    <div className="flex items-center justify-between text-[13px]">
+                      <span className="text-slate-400 font-medium">Selected date</span>
+                      <span className="text-slate-100">{billDate}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[13px]">
+                      <span className="text-slate-400 font-medium">Printer flow</span>
+                      <span className="text-slate-100">Billing Desk printer</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 rounded-lg border border-border/90 bg-white/2 p-3">
+                    {(
+                      [
+                        {
+                          label: 'Morning report',
+                          value: 'Print the selected date using the morning shift summary.'
+                        },
+                        {
+                          label: 'Evening report',
+                          value: 'Print the selected date using the evening shift summary.'
+                        },
+                        {
+                          label: 'Day summary',
+                          value: 'Run both morning and evening summary prints in sequence.'
+                        }
+                      ] as Array<{ label: string; value: string }>
+                    ).map((item) => (
+                      <div
+                        key={item.label}
+                        className="rounded-lg border border-border/80 bg-[#111923] px-3 py-2"
+                      >
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
+                          {item.label}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-400">{item.value}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {summaryPrintState.status !== 'idle' ? (
+                    <div
+                      className={cn(
+                        'rounded-lg px-3 py-2 text-xs',
+                        summaryPrintState.status === 'success'
+                          ? 'border border-emerald-400/25 bg-emerald-500/10 text-emerald-100'
+                          : summaryPrintState.status === 'error'
+                            ? 'border border-rose-400/25 bg-rose-500/10 text-rose-100'
+                            : 'border border-primary/20 bg-primary/10 text-primary'
+                      )}
+                    >
+                      {summaryPrintState.message}
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-border/90 bg-white/2 px-3 py-2 text-xs text-slate-400">
+                      Choose a summary action to send the selected date to the printer.
+                    </div>
+                  )}
+                </div>
+              </SurfaceCard>
+            </aside>
+          </div>
         )}
       </div>
     </main>

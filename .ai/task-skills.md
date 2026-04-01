@@ -2,6 +2,14 @@
 
 These are repo-local skills for future work. Use the relevant section as a checklist before editing code.
 
+## Knowledge Center
+
+Use `.ai/README.md` as the map for the knowledge center before substantial work.
+
+- Read `.ai/tasks/registry.md` before assuming which task file is current.
+- Treat `.ai/tasks/inbox/raw-user-tasks.md` as the raw intake file for user-written notes in any language.
+- Convert raw notes into structured task files and combine closely related requests when practical.
+
 ## Skill: Domain Alignment
 
 Use when implementing features, data models, labels, or reports.
@@ -68,10 +76,12 @@ Use when editing the renderer or print flow.
 
 Use before substantial feature or refactor work.
 
-- Add or update one or more task files under `.ai/tasks/`.
-- Combine closely related work into a single task file when practical.
+- Read `.ai/tasks/registry.md`.
+- Add or update one or more structured task files under the correct status folder in `.ai/tasks/`.
+- Combine closely related work into a single structured task file when practical.
 - Keep task files short and execution-oriented.
-- Reflect major scope changes in `.ai/tasks/` before implementation drifts too far.
+- Reflect major scope changes in both the task file and `.ai/tasks/registry.md` before implementation drifts too far.
+- If a task starts as a raw user note, keep the raw note in the inbox and create a normalized task file separately.
 
 ## Skill: Packaging Awareness
 
@@ -87,8 +97,10 @@ Use when changing native modules, assets, or build config.
 Before substantial work:
 
 - Read `AGENTS.md`.
+- Read `.ai/README.md`.
 - Read `.ai/project-context.md`.
 - Read the most relevant section in this file.
 - Re-open `.ai/product-spec.md` if the task affects behavior, terminology, or data.
 - Read `.ai/resources/routes.json`, `.ai/resources/API_ENDPOINTS.md`, and `.ai/resources/api-database.sql` for API-backed work.
-- Create or update the relevant file in `.ai/tasks/`.
+- Read `.ai/tasks/registry.md`.
+- Create or update the relevant structured task file in `.ai/tasks/`.

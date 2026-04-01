@@ -136,6 +136,26 @@ type BillingResult = {
   print: Record<string, unknown>
 }
 
+type SummaryShift = 'morning' | 'evening'
+
+type DaySummaryItem = {
+  service_name: string
+  quantity: number
+  total: number
+}
+
+type DaySummaryReport = {
+  start_date: string
+  end_date: string
+  items: DaySummaryItem[]
+}
+
+type SummaryPrintResult = {
+  shift: SummaryShift
+  report: DaySummaryReport
+  print: Record<string, unknown>
+}
+
 type BookingRecord = {
   billId: number
   reference: string
@@ -431,6 +451,12 @@ function getRecord(record: unknown, key: string): Record<string, unknown> | null
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null
+}
+
+function getArray(record: unknown, key: string): unknown[] {
+  if (!record || typeof record !== 'object') return []
+  const value = (record as Record<string, unknown>)[key]
+  return Array.isArray(value) ? value : []
 }
 
 function normalizeWhitespace(value: string): string {
@@ -883,6 +909,92 @@ async function printReceipt(payload: PrintPayload): Promise<Record<string, unkno
   return (body as Record<string, unknown>) ?? {}
 }
 
+function normalizeDaySummaryItem(record: Record<string, unknown>): DaySummaryItem | null {
+  const serviceName = getString(record, 'service_name')
+  const quantity = getNumber(record, 'quantity')
+  const total = getNumber(record, 'total')
+
+  if (!serviceName) {
+    return null
+  }
+
+  return {
+    service_name: serviceName,
+    quantity: quantity ?? 0,
+    total: total ?? 0
+  }
+}
+
+function normalizeDaySummaryReport(payload: unknown, requestedDate: string): DaySummaryReport {
+  const report =
+    payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : {}
+
+  const items = getArray(report, 'items')
+    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+    .map(normalizeDaySummaryItem)
+    .filter((item): item is DaySummaryItem => item !== null)
+
+  return {
+    start_date: getString(report, 'start_date') || requestedDate,
+    end_date: getString(report, 'end_date') || requestedDate,
+    items
+  }
+}
+
+async function fetchDaySummaryReport(date: string, shift: SummaryShift): Promise<DaySummaryReport> {
+  const normalizedDate = date.trim()
+  const payload = await apiRequest<unknown>(
+    `/api/reports/day-summary?date=${encodeURIComponent(normalizedDate)}&shift=${encodeURIComponent(shift)}`
+  )
+
+  return normalizeDaySummaryReport(payload, normalizedDate)
+}
+
+async function printSummaryReport(report: DaySummaryReport): Promise<Record<string, unknown>> {
+  const response = await fetch(`${getPrinterBaseUrl()}/print-summary`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(report)
+  })
+
+  const rawText = await response.text()
+  const body = rawText ? safeJsonParse(rawText) : null
+
+  if (!response.ok) {
+    const message = getErrorMessage(body, response.statusText)
+    throw new Error(message || `Summary printer request failed with status ${response.status}`)
+  }
+
+  return (body as Record<string, unknown>) ?? {}
+}
+
+async function printShiftSummary(date: string, shift: SummaryShift): Promise<SummaryPrintResult> {
+  const report = await fetchDaySummaryReport(date, shift)
+  const print = await printSummaryReport(report)
+
+  return {
+    shift,
+    report,
+    print
+  }
+}
+
+async function printDaySummary(date: string): Promise<SummaryPrintResult[]> {
+  const shifts: SummaryShift[] = ['morning', 'evening']
+  const results: SummaryPrintResult[] = []
+
+  for (const shift of shifts) {
+    results.push(await printShiftSummary(date, shift))
+  }
+
+  return results
+}
+
 async function submitBilling(payload: BillingSubmission): Promise<BillingResult> {
   const patient = await upsertPatient(payload.patient)
   const bill = await createBill(payload, patient.id)
@@ -1023,6 +1135,17 @@ handlePromiseError(
 
     ipcMain.handle('receipt:print', async (_, payload: PrintPayload) => {
       return printReceipt(payload)
+    })
+
+    ipcMain.handle(
+      'summary-report:print',
+      async (_, payload: { date: string; shift: SummaryShift }) => {
+        return printShiftSummary(payload.date, payload.shift)
+      }
+    )
+
+    ipcMain.handle('summary-report:print-day', async (_, date: string) => {
+      return printDaySummary(date)
     })
 
     createWindow()

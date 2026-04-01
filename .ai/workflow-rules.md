@@ -3,7 +3,8 @@
 ## Default execution rules for future tasks
 
 - Start by reading `AGENTS.md`, then the relevant `.ai/*.md` file.
-- Create or refresh `.ai/tasks/*.md` entries before substantial feature work.
+- Read `.ai/README.md` and `.ai/tasks/registry.md` before substantial feature work.
+- Create or refresh structured task entries under `.ai/tasks/` before substantial feature work.
 - Ground decisions in the actual codebase, not the starter README.
 - Preserve user changes already present in the worktree.
 - Prefer incremental changes that keep the app runnable.
@@ -52,3 +53,11 @@
 
 - Ask the user only if the ambiguity changes data model, billing rules, or printed output in a risky way.
 - Otherwise make the smallest reasonable assumption and proceed.
+
+## Task intake and tracking
+
+- Raw user notes belong in `.ai/tasks/inbox/raw-user-tasks.md` and may be written in any language.
+- Convert raw notes into structured task files before implementation when the work is substantial.
+- Combine closely related raw notes into one structured task file when practical.
+- Track each structured task in `.ai/tasks/registry.md`.
+- If an older task note has an unclear state, keep it in `triage` instead of guessing whether it is open or done.

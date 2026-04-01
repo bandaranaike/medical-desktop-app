@@ -158,6 +158,26 @@ type PrintPayload = {
   total: number
 }
 
+type SummaryShift = 'morning' | 'evening'
+
+type DaySummaryItem = {
+  service_name: string
+  quantity: number
+  total: number
+}
+
+type DaySummaryReport = {
+  start_date: string
+  end_date: string
+  items: DaySummaryItem[]
+}
+
+type SummaryPrintResult = {
+  shift: SummaryShift
+  report: DaySummaryReport
+  print: Record<string, unknown>
+}
+
 type AppNotification = {
   level: 'error' | 'warning' | 'info' | 'success'
   title: string
@@ -186,6 +206,11 @@ declare global {
         bill: Record<string, unknown>
       }>
       printReceipt(payload: PrintPayload): Promise<Record<string, unknown>>
+      printSummaryReport(payload: {
+        date: string
+        shift: SummaryShift
+      }): Promise<SummaryPrintResult>
+      printDaySummary(date: string): Promise<SummaryPrintResult[]>
       onAppNotification(callback: (notification: AppNotification) => void): () => void
     }
   }

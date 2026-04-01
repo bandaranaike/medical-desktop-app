@@ -44,7 +44,7 @@
   - operation tabs: OPD, Channeling, Dental, Others
   - operation-specific billing inputs
   - summary and billing actions
-  - a tabbed workspace for Billing Desk and Booking List
+  - a tabbed workspace for Billing Desk, Booking List, and Summary Prints
 - Patient lookup is implemented through preload IPC and Prisma search.
 - Search supports `name`, `email`, `telephone`, and `registrationNo` through the current backend search handler.
 - Future patient search, autofill, and bill creation work should prefer the API when suitable routes exist.
@@ -79,3 +79,4 @@
 - Account for API headers/auth requirements from `.ai/resources/API_ENDPOINTS.md` before assuming a route is directly usable.
 - If a needed API route is missing, define the frontend contract clearly and coordinate a backend change in the WSL project if direct access is not available.
 - When doing substantial feature work, create or update `.ai/tasks/*.md` first.
+- The `.ai/tasks/` folder now uses a status-based structure plus `registry.md` for task tracking.
