@@ -21,10 +21,14 @@ This is the current structured task index for `.ai/tasks/`.
 | TASK-112 | triage | UI Polish Spacing | `.ai/tasks/triage/ui-polish-spacing.md` | older task note needs review |
 | TASK-113 | triage | Visit Type Defaults And Service Presets | `.ai/tasks/triage/visit-type-defaults-and-service-presets.md` | older task note needs review |
 | TASK-114 | triage | Windows Runtime Config | `.ai/tasks/triage/windows-runtime-config.md` | older task note needs review |
-| TASK-115 | planned | Billing Desk Dynamic Services And Split Pricing | `.ai/tasks/planned/billing-desk-dynamic-services-and-split-pricing.md` | created from raw billing desk notes on 2026-04-01 |
-| TASK-116 | planned | Backend API Contract For Billing Services | `.ai/tasks/planned/backend-api-contract-for-billing-services.md` | created from raw billing/API notes on 2026-04-01 |
+| TASK-115 | blocked | Billing Desk Dynamic Services And Split Pricing | `.ai/tasks/blocked/billing-desk-dynamic-services-and-split-pricing.md` | renderer and IPC updated; backend API additions still required as of 2026-04-01 |
+| TASK-116 | done | Backend API Contract For Billing Services | `.ai/tasks/done/backend-api-contract-for-billing-services.md` | API change document created on 2026-04-01 |
+| TASK-117 | done | Light Theme Toggle | `.ai/tasks/done/light-theme-toggle.md` | light theme and header toggle implemented on 2026-04-01 |
 
 ## Notes
 
 - Raw task capture is intentionally separate and lives in `.ai/tasks/inbox/raw-user-tasks.md`.
 - Tasks in `triage` should not be assumed to be open or done until they are reviewed.
+
+
+

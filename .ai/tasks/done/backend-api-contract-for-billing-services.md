@@ -3,7 +3,7 @@
 ## Meta
 
 - ID: `TASK-116`
-- Status: `planned`
+- Status: `done`
 - Owner: `agent`
 - Source: `.ai/tasks/inbox/raw-user-tasks.md` note added on `2026-04-01`
 - Last Updated: `2026-04-01`
@@ -46,4 +46,6 @@ Define and document the backend/API changes needed to support dynamic billing se
 - a concrete API change document exists in `.ai/` for the backend/API team
 - required new endpoints, payload changes, and auth expectations are listed clearly
 - the dependency between backend work and desktop implementation is explicit in task tracking
+
+
 

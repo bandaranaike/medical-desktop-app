@@ -25,9 +25,30 @@ type DoctorRecord = {
   dentalSplitValue: number
 }
 
+type BillingServiceSuggestion = {
+  id: number
+  name: string
+  key: string
+  inHousePrice: number
+  referredPrice: number
+}
+
 type DoctorListOptions = {
   date?: string
   doctorType?: 'opd' | 'specialist' | 'dental' | 'treatment'
+}
+
+type BillLineItem = {
+  name: string
+  price: string
+  serviceId?: number | null
+  serviceKey?: string
+  category?: 'opd' | 'channeling' | 'dental' | 'others'
+  doctorId?: number | null
+  inHouseAmount?: number
+  referredAmount?: number
+  totalAmount?: number
+  isAdHoc?: boolean
 }
 
 type BillingSubmission = {
@@ -44,15 +65,13 @@ type BillingSubmission = {
   }
   doctorId: number
   total: number
+  systemAmount: number
   serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
   shift: 'morning' | 'evening'
   date: string
   doctorName: string
   paymentType: 'cash' | 'card' | 'online'
-  items: Array<{
-    name: string
-    price: string
-  }>
+  items: BillLineItem[]
 }
 
 type BookingSubmission = {
@@ -110,10 +129,7 @@ type BookingQueueItem = {
   serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
   billAmount: number
   systemAmount: number
-  items: Array<{
-    name: string
-    price: string
-  }>
+  items: BillLineItem[]
   createdAt: string
 }
 
@@ -128,10 +144,7 @@ type BookingUpdatePayload = {
   serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
   billAmount: number
   systemAmount: number
-  items: Array<{
-    name: string
-    price: string
-  }>
+  items: BillLineItem[]
 }
 
 type BookingProceedPayload = {
@@ -140,10 +153,7 @@ type BookingProceedPayload = {
   shift: 'morning' | 'evening'
   billAmount: number
   systemAmount: number
-  items: Array<{
-    name: string
-    price: string
-  }>
+  items: BillLineItem[]
 }
 
 type PrintPayload = {
@@ -194,6 +204,11 @@ const api = {
     ipcRenderer.invoke('patients:search', query),
   listDoctors: (options?: DoctorListOptions): Promise<DoctorRecord[]> =>
     ipcRenderer.invoke('doctors:list', options),
+  searchBillingServices: (
+    query: string,
+    operation?: 'opd' | 'channeling' | 'dental' | 'others'
+  ): Promise<BillingServiceSuggestion[]> =>
+    ipcRenderer.invoke('billing-services:search', query, operation),
   submitBilling: (
     payload: BillingSubmission
   ): Promise<{

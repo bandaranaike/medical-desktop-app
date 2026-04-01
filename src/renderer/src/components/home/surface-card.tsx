@@ -20,7 +20,7 @@ export function SurfaceCard({
   return (
     <section
       className={cn(
-        'rounded-lg border border-border/90 bg-[linear-gradient(180deg,rgba(16,23,35,0.96),rgba(13,19,29,0.92))] p-4 shadow-[0_18px_40px_rgba(3,9,18,0.26)] backdrop-blur-md',
+        'surface-shell rounded-lg border p-4 backdrop-blur-md',
         className
       )}
     >
@@ -31,8 +31,8 @@ export function SurfaceCard({
               {eyebrow}
             </p>
           ) : null}
-          <h2 className="text-sm font-semibold tracking-tight text-white">{title}</h2>
-          {description ? <p className="text-[11px] text-slate-400">{description}</p> : null}
+          <h2 className="text-theme-strong text-sm font-semibold tracking-tight">{title}</h2>
+          {description ? <p className="text-theme-muted text-[11px]">{description}</p> : null}
         </div>
       </div>
       {children}

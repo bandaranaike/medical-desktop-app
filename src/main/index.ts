@@ -126,15 +126,13 @@ type BillingSubmission = {
   patient: PatientDraft
   doctorId: number
   total: number
+  systemAmount: number
   serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
   shift: 'morning' | 'evening'
   date: string
   doctorName: string
   paymentType: 'cash' | 'card' | 'online'
-  items: Array<{
-    name: string
-    price: string
-  }>
+  items: BillLineItem[]
 }
 
 type BookingSubmission = {
@@ -198,10 +196,7 @@ type BookingQueueItem = {
   serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
   billAmount: number
   systemAmount: number
-  items: Array<{
-    name: string
-    price: string
-  }>
+  items: BillLineItem[]
   createdAt: string
 }
 
@@ -216,10 +211,7 @@ type BookingUpdatePayload = {
   serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
   billAmount: number
   systemAmount: number
-  items: Array<{
-    name: string
-    price: string
-  }>
+  items: BillLineItem[]
 }
 
 type BookingProceedPayload = {
@@ -228,10 +220,28 @@ type BookingProceedPayload = {
   shift: 'morning' | 'evening'
   billAmount: number
   systemAmount: number
-  items: Array<{
-    name: string
-    price: string
-  }>
+  items: BillLineItem[]
+}
+
+type BillLineItem = {
+  name: string
+  price: string
+  serviceId?: number | null
+  serviceKey?: string
+  category?: 'opd' | 'channeling' | 'dental' | 'others'
+  doctorId?: number | null
+  inHouseAmount?: number
+  referredAmount?: number
+  totalAmount?: number
+  isAdHoc?: boolean
+}
+
+type BillingServiceSuggestion = {
+  id: number
+  name: string
+  key: string
+  inHousePrice: number
+  referredPrice: number
 }
 
 type PrintPayload = {
@@ -686,6 +696,63 @@ function doctorCollection(payload: unknown): DoctorRecord[] {
     .filter((item) => item.id > 0 && item.name)
 }
 
+function normalizeBillingService(record: Record<string, unknown>): BillingServiceSuggestion | null {
+  const id = getNumber(record, 'id') ?? 0
+  const name = getString(record, 'name')
+
+  if (!id || !name) {
+    return null
+  }
+
+  return {
+    id,
+    name,
+    key: getString(record, 'key'),
+    inHousePrice: getNumber(record, 'system_price') ?? 0,
+    referredPrice: getNumber(record, 'bill_price') ?? 0
+  }
+}
+
+async function searchBillingServices(
+  query: string,
+  operation?: 'opd' | 'channeling' | 'dental' | 'others'
+): Promise<BillingServiceSuggestion[]> {
+  const normalizedQuery = query.trim()
+
+  if (normalizedQuery.length < 2) {
+    return []
+  }
+
+  const serviceType =
+    operation === 'channeling'
+      ? 'specialist'
+      : operation === 'others'
+        ? 'treatment'
+        : operation
+
+  const attempts = [
+    `/api/public/services/search?query=${encodeURIComponent(normalizedQuery)}${serviceType ? `&type=${encodeURIComponent(serviceType)}` : ''}`,
+    `/api/public/services?query=${encodeURIComponent(normalizedQuery)}${serviceType ? `&type=${encodeURIComponent(serviceType)}` : ''}`
+  ]
+
+  for (const path of attempts) {
+    try {
+      const payload = await apiRequest<unknown>(path, {}, { allowNotFound: true })
+      const services = getCollection(payload)
+        .map(normalizeBillingService)
+        .filter((item): item is BillingServiceSuggestion => item !== null)
+
+      if (services.length > 0) {
+        return services
+      }
+    } catch (error) {
+      console.warn(`[searchBillingServices] failed attempt for ${path}`, error)
+    }
+  }
+
+  return []
+}
+
 async function searchPatients(query: string): Promise<PatientRecord[]> {
   const payload = await apiRequest<unknown>(
     `/api/public/patients/search?query=${encodeURIComponent(query)}`
@@ -810,13 +877,24 @@ async function createBill(
     body: JSON.stringify({
       bill_amount: payload.total,
       payment_type: payload.paymentType,
-      system_amount: 0,
+      system_amount: payload.systemAmount,
       patient_id: patientId,
-      doctor_id: payload.doctorId,
+      doctor_id: payload.doctorId || null,
       is_booking: false,
       service_type: payload.serviceType,
       shift: payload.shift,
-      date: payload.date
+      date: payload.date,
+      items: payload.items.map((item) => ({
+        service_id: item.serviceId ?? -1,
+        service_key: item.serviceKey,
+        service_name: item.name,
+        bill_amount: item.totalAmount ?? Number(item.price) ?? 0,
+        system_amount: item.inHouseAmount ?? 0,
+        referred_amount: item.referredAmount ?? 0,
+        category: item.category,
+        doctor_id: item.doctorId ?? payload.doctorId ?? null,
+        is_ad_hoc: item.isAdHoc ?? false
+      }))
     })
   })
 }
@@ -887,8 +965,19 @@ function normalizeBookingQueueItem(record: Record<string, unknown>): BookingQueu
     items: items
       .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
       .map((item) => ({
+        serviceId: getNumber(item, 'service_id'),
+        serviceKey:
+          getString(item, 'service_key') || getString(getRecord(item, 'service'), 'key') || '',
         name: getString(item, 'name') || getString(item, 'service_name') || 'Item',
-        price: getString(item, 'price') || String(getNumber(item, 'bill_amount') ?? 0)
+        price: getString(item, 'price') || String(getNumber(item, 'bill_amount') ?? 0),
+        inHouseAmount: getNumber(item, 'in_house_amount') ?? getNumber(item, 'system_amount') ?? 0,
+        referredAmount:
+          getNumber(item, 'referred_amount') ??
+          Math.max(
+            (getNumber(item, 'bill_amount') ?? 0) - (getNumber(item, 'system_amount') ?? 0),
+            0
+          ),
+        totalAmount: getNumber(item, 'bill_amount') ?? 0
       })),
     createdAt: getString(record, 'created_at')
   }
@@ -954,7 +1043,17 @@ async function updateBooking(payload: BookingUpdatePayload): Promise<BookingReco
       service_type: payload.serviceType,
       bill_amount: payload.billAmount,
       system_amount: payload.systemAmount,
-      items: payload.items
+      items: payload.items.map((item) => ({
+        service_id: item.serviceId ?? -1,
+        service_key: item.serviceKey,
+        service_name: item.name,
+        bill_amount: item.totalAmount ?? Number(item.price) ?? 0,
+        system_amount: item.inHouseAmount ?? 0,
+        referred_amount: item.referredAmount ?? 0,
+        category: item.category,
+        doctor_id: item.doctorId ?? payload.doctorId ?? null,
+        is_ad_hoc: item.isAdHoc ?? false
+      }))
     })
   })
 
@@ -985,7 +1084,17 @@ async function proceedBookingToPayment(
         shift: payload.shift,
         bill_amount: payload.billAmount,
         system_amount: payload.systemAmount,
-        items: payload.items
+        items: payload.items.map((item) => ({
+          service_id: item.serviceId ?? -1,
+          service_key: item.serviceKey,
+          service_name: item.name,
+          bill_amount: item.totalAmount ?? Number(item.price) ?? 0,
+          system_amount: item.inHouseAmount ?? 0,
+          referred_amount: item.referredAmount ?? 0,
+          category: item.category,
+          doctor_id: item.doctorId ?? null,
+          is_ad_hoc: item.isAdHoc ?? false
+        }))
       })
     }
   )
@@ -1263,6 +1372,13 @@ handlePromiseError(
     ipcMain.handle('doctors:list', async (_, options?: DoctorListOptions) => {
       return listDoctors(options)
     })
+
+    ipcMain.handle(
+      'billing-services:search',
+      async (_, query: string, operation?: 'opd' | 'channeling' | 'dental' | 'others') => {
+        return searchBillingServices(query, operation)
+      }
+    )
 
     ipcMain.handle('billing:submit', async (_, payload: BillingSubmission) => {
       return submitBilling(payload)

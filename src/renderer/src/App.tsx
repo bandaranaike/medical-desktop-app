@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { MoonStar, SunMedium } from 'lucide-react'
 
 import { OperationTabs, type OperationType } from '@/components/home/operation-tabs'
 import { SurfaceCard } from '@/components/home/surface-card'
@@ -12,6 +13,7 @@ type Shift = 'Morning' | 'Evening'
 type SearchField = 'name' | 'telephone'
 type WorkspaceTab = 'billing' | 'bookings' | 'summary'
 type SummaryShift = 'morning' | 'evening'
+type ThemeMode = 'dark' | 'light'
 
 interface PatientInfo {
   id: number | null
@@ -49,15 +51,36 @@ interface DoctorOption {
   dentalSplitValue: number
 }
 
+interface BillingServiceSuggestion {
+  id: number
+  name: string
+  key: string
+  inHousePrice: number
+  referredPrice: number
+}
+
 interface ChargeRow {
   id: string
   label: string
-  amount: string
+  serviceId: number | null
+  inHouseAmount: string
+  referredAmount: string
 }
 
 interface PrintLineItem {
   name: string
   price: string
+}
+
+interface BillLineItem extends PrintLineItem {
+  serviceId?: number | null
+  serviceKey?: string
+  category?: 'opd' | 'channeling' | 'dental' | 'others'
+  doctorId?: number | null
+  inHouseAmount?: number
+  referredAmount?: number
+  totalAmount?: number
+  isAdHoc?: boolean
 }
 
 interface AppNotification {
@@ -112,7 +135,7 @@ interface BookingQueueItem {
   serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
   billAmount: number
   systemAmount: number
-  items: PrintLineItem[]
+  items: BillLineItem[]
   createdAt: string
 }
 
@@ -137,7 +160,10 @@ interface RecentServicePreset {
   key: string
   operation: 'dental' | 'others'
   label: string
-  amount: string
+  serviceId?: number | null
+  inHouseAmount?: string
+  referredAmount?: string
+  amount?: string
   doctorId: number | null
   useCount: number
   lastUsedAt: string
@@ -151,16 +177,21 @@ interface FormPreferences {
 type RendererApi = {
   searchPatients: (query: string) => Promise<PatientRecord[]>
   listDoctors: (options?: DoctorListOptions) => Promise<DoctorOption[]>
+  searchBillingServices: (
+    query: string,
+    operation?: OperationType
+  ) => Promise<BillingServiceSuggestion[]>
   submitBilling: (payload: {
     patient: PatientInfo
     doctorId: number
     total: number
+    systemAmount: number
     serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
     shift: 'morning' | 'evening'
     date: string
     doctorName: string
     paymentType: 'cash' | 'card' | 'online'
-    items: PrintLineItem[]
+    items: BillLineItem[]
   }) => Promise<{
     patient: PatientRecord
     bill: Record<string, unknown>
@@ -184,7 +215,7 @@ type RendererApi = {
     serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
     billAmount: number
     systemAmount: number
-    items: PrintLineItem[]
+    items: BillLineItem[]
   }) => Promise<BookingRecord>
   deleteBooking: (id: number) => Promise<{ message: string; deletedId: number }>
   proceedBookingToPayment: (payload: {
@@ -193,7 +224,7 @@ type RendererApi = {
     shift: 'morning' | 'evening'
     billAmount: number
     systemAmount: number
-    items: PrintLineItem[]
+    items: BillLineItem[]
   }) => Promise<{ message: string; bill: Record<string, unknown> }>
   printReceipt: (payload: {
     billId: number
@@ -213,12 +244,13 @@ type RendererApi = {
 }
 
 const inputClassName =
-  'h-9 rounded-md border-border/90 bg-white/[0.035] text-sm text-white placeholder:text-slate-500 focus-visible:border-primary/70 focus-visible:ring-primary/20'
+  'h-9 rounded-md border-border/90 bg-white/[0.035] text-sm text-theme-strong placeholder:text-theme-muted focus-visible:border-primary/70 focus-visible:ring-primary/20'
 const selectClassName =
-  'flex h-9 w-full rounded-md border border-border/90 bg-white/[0.035] px-3 text-sm text-white outline-none transition focus:border-primary/70 focus:ring-2 focus:ring-primary/20'
+  'flex h-9 w-full rounded-md border border-border/90 bg-white/[0.035] px-3 text-sm text-theme-strong outline-none transition focus:border-primary/70 focus:ring-2 focus:ring-primary/20'
 const softButtonClassName =
-  'h-8 border-border/90 bg-white/[0.04] text-xs text-slate-200 transition-all hover:border-primary/35 hover:bg-primary/10 hover:text-white'
+  'h-8 border-border/90 bg-white/[0.04] text-xs text-theme-soft transition-all hover:border-primary/35 hover:bg-primary/10 hover:text-theme-strong'
 const FORM_PREFERENCES_KEY = 'medical-center-form-preferences-v1'
+const THEME_PREFERENCE_KEY = 'medical-center-theme-v1'
 const EMPTY_PREFERENCES: FormPreferences = {
   fieldDefaults: {
     opd: {},
@@ -228,10 +260,17 @@ const EMPTY_PREFERENCES: FormPreferences = {
   recentServices: []
 }
 
-const makeRow = (label = '', amount = ''): ChargeRow => ({
+const makeRow = (
+  label = '',
+  inHouseAmount = '',
+  referredAmount = '',
+  serviceId: number | null = null
+): ChargeRow => ({
   id: Math.random().toString(36).slice(2, 10),
   label,
-  amount
+  serviceId,
+  inHouseAmount,
+  referredAmount
 })
 
 const money = (value: number): string =>
@@ -245,13 +284,17 @@ const num = (value: string): number => {
 const summaryShiftLabel = (shift: SummaryShift): string =>
   shift === 'morning' ? 'Morning' : 'Evening'
 
-function splitDental(amount: number, doctor?: DoctorOption): { inHouse: number; referred: number } {
-  if (!doctor || amount <= 0) return { inHouse: 0, referred: amount }
-  const inHouse =
-    doctor.dentalSplitMode === 'fixed'
-      ? Math.min(doctor.dentalSplitValue, amount)
-      : amount * (doctor.dentalSplitValue / 100)
-  return { inHouse, referred: Math.max(amount - inHouse, 0) }
+function chargeRowTotal(row: ChargeRow): number {
+  return num(row.inHouseAmount) + num(row.referredAmount)
+}
+
+function normalizeStoredRecentService(preset: RecentServicePreset): RecentServicePreset {
+  return {
+    ...preset,
+    serviceId: preset.serviceId ?? null,
+    inHouseAmount: preset.inHouseAmount ?? '0',
+    referredAmount: preset.referredAmount ?? preset.amount ?? '0'
+  }
 }
 
 function normalizePatientName(value: string): string {
@@ -322,7 +365,9 @@ function loadFormPreferences(): FormPreferences {
         channeling: parsed.fieldDefaults?.channeling ?? {},
         dental: parsed.fieldDefaults?.dental ?? {}
       },
-      recentServices: Array.isArray(parsed.recentServices) ? parsed.recentServices : []
+      recentServices: Array.isArray(parsed.recentServices)
+        ? parsed.recentServices.map((preset) => normalizeStoredRecentService(preset))
+        : []
     }
   } catch {
     return EMPTY_PREFERENCES
@@ -336,6 +381,27 @@ function saveFormPreferences(preferences: FormPreferences): void {
     window.localStorage.setItem(FORM_PREFERENCES_KEY, JSON.stringify(preferences))
   } catch {
     // Ignore local persistence errors and keep the form usable.
+  }
+}
+
+function loadThemePreference(): ThemeMode {
+  if (typeof window === 'undefined') return 'dark'
+
+  try {
+    const stored = window.localStorage.getItem(THEME_PREFERENCE_KEY)
+    return stored === 'light' ? 'light' : 'dark'
+  } catch {
+    return 'dark'
+  }
+}
+
+function saveThemePreference(theme: ThemeMode): void {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.localStorage.setItem(THEME_PREFERENCE_KEY, theme)
+  } catch {
+    // Ignore persistence issues and keep the theme toggle usable.
   }
 }
 
@@ -652,6 +718,7 @@ function App(): React.JSX.Element {
   const [proceedingBookingId, setProceedingBookingId] = useState<number | null>(null)
   const [paymentPromptBooking, setPaymentPromptBooking] = useState<BookingQueueItem | null>(null)
   const [toasts, setToasts] = useState<ToastItem[]>([])
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => loadThemePreference())
   const [opd, setOpd] = useState({ doctorId: 0, consultationFee: '', medicineFee: '' })
   const [channeling, setChanneling] = useState({
     doctorId: 0,
@@ -661,18 +728,103 @@ function App(): React.JSX.Element {
   const [dental, setDental] = useState({
     doctorId: 0,
     registrationFee: '',
-    rows: [makeRow('Consultation', ''), makeRow('Medicine', '')]
+    rows: [makeRow('Consultation'), makeRow('Medicine')]
   })
   const [othersDoctorId, setOthersDoctorId] = useState(0)
   const [others, setOthers] = useState<ChargeRow[]>([
-    makeRow('Report Charge', ''),
-    makeRow('Treatment Charge', '')
+    makeRow('Report Charge'),
+    makeRow('Treatment Charge')
   ])
+  const [serviceSuggestions, setServiceSuggestions] = useState<
+    Record<string, BillingServiceSuggestion[]>
+  >({})
   const dismissToast = (id: string): void => {
     setToasts((current) => current.filter((toast) => toast.id !== id))
   }
   const pushToast = (level: ToastTone, title: string, message: string): void => {
     setToasts((current) => [...current.slice(-3), makeToast(level, title, message)])
+  }
+  const toggleThemeMode = (): void => {
+    setThemeMode((current) => {
+      const next = current === 'dark' ? 'light' : 'dark'
+      saveThemePreference(next)
+      return next
+    })
+  }
+  const fetchServiceSuggestions = async (
+    rowId: string,
+    query: string,
+    operation: 'dental' | 'others'
+  ): Promise<void> => {
+    const normalizedQuery = query.trim()
+    if (normalizedQuery.length < 2) {
+      setServiceSuggestions((current) => ({ ...current, [rowId]: [] }))
+      return
+    }
+
+    const localSuggestions = formPreferences.recentServices
+      .filter(
+        (item) =>
+          item.operation === operation &&
+          item.label.toLowerCase().includes(normalizedQuery.toLowerCase())
+      )
+      .slice(0, 5)
+      .map((item) => ({
+        id: item.serviceId ?? 0,
+        name: item.label,
+        key: item.key,
+        inHousePrice: num(item.inHouseAmount ?? '0'),
+        referredPrice: num(item.referredAmount ?? item.amount ?? '0')
+      }))
+
+    try {
+      const apiSuggestions = await api.searchBillingServices(normalizedQuery, operation)
+      const merged = [...localSuggestions]
+
+      for (const suggestion of apiSuggestions) {
+        if (
+          !merged.some(
+            (item) =>
+              item.id === suggestion.id ||
+              item.name.trim().toLowerCase() === suggestion.name.trim().toLowerCase()
+          )
+        ) {
+          merged.push(suggestion)
+        }
+      }
+
+      setServiceSuggestions((current) => ({ ...current, [rowId]: merged.slice(0, 8) }))
+    } catch {
+      setServiceSuggestions((current) => ({ ...current, [rowId]: localSuggestions }))
+    }
+  }
+  const applySuggestedService = (
+    operation: 'dental' | 'others',
+    rowId: string,
+    serviceName: string
+  ): void => {
+    const suggestion = (serviceSuggestions[rowId] ?? []).find(
+      (item) => item.name.trim().toLowerCase() === serviceName.trim().toLowerCase()
+    )
+    if (!suggestion) return
+
+    const apply = (row: ChargeRow): ChargeRow => ({
+      ...row,
+      label: suggestion.name,
+      serviceId: suggestion.id || row.serviceId,
+      inHouseAmount: row.inHouseAmount || String(suggestion.inHousePrice || ''),
+      referredAmount: row.referredAmount || String(suggestion.referredPrice || '')
+    })
+
+    if (operation === 'dental') {
+      setDental((current) => ({
+        ...current,
+        rows: current.rows.map((row) => (row.id === rowId ? apply(row) : row))
+      }))
+      return
+    }
+
+    setOthers((current) => current.map((row) => (row.id === rowId ? apply(row) : row)))
   }
   const handleOperationChange = (operation: OperationType): void => {
     setDoctorLoading(true)
@@ -846,6 +998,12 @@ function App(): React.JSX.Element {
     }
   }, [api, billDate, bookingQueueRefreshKey, workspaceTab])
 
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+
+    document.documentElement.dataset.theme = themeMode
+  }, [themeMode])
+
   const setPatientField = (key: keyof PatientInfo, value: string | number | null): void => {
     setPatient((current) => ({ ...current, [key]: value }))
     if (submitState.status !== 'idle') {
@@ -940,16 +1098,37 @@ function App(): React.JSX.Element {
     setSubmitState({ status: 'idle', message: '' })
   }
 
-  const bookingItemAmount = (items: PrintLineItem[], labels: string[]): string => {
+  const bookingItemAmount = (
+    items: BillLineItem[],
+    labels: string[],
+    amountType: 'total' | 'inHouse' | 'referred' = 'total'
+  ): string => {
     const match = items.find((item) => labels.includes(item.name.trim().toLowerCase()))
-    return match?.price ?? ''
+    if (!match) return ''
+
+    if (amountType === 'inHouse') {
+      return String(match.inHouseAmount ?? 0)
+    }
+
+    if (amountType === 'referred') {
+      return String(match.referredAmount ?? num(match.price))
+    }
+
+    return match.price ?? ''
   }
 
-  const bookingItemRows = (items: PrintLineItem[], excludedLabels: string[]): ChargeRow[] => {
+  const bookingItemRows = (items: BillLineItem[], excludedLabels: string[]): ChargeRow[] => {
     const excluded = new Set(excludedLabels)
     const rows = items
       .filter((item) => !excluded.has(item.name.trim().toLowerCase()))
-      .map((item) => makeRow(item.name, item.price))
+      .map((item) =>
+        makeRow(
+          item.name,
+          String(item.inHouseAmount ?? 0),
+          String(item.referredAmount ?? num(item.price)),
+          item.serviceId ?? null
+        )
+      )
 
     return rows.length > 0 ? rows : [makeRow()]
   }
@@ -994,8 +1173,16 @@ function App(): React.JSX.Element {
     if (nextOperation === 'channeling') {
       setChanneling({
         doctorId: booking.doctor.id ?? 0,
-        consultationFee: bookingItemAmount(booking.items, ['doctor fee', 'consultation']),
-        bookingFee: bookingItemAmount(booking.items, ['booking fee', 'channeling / booking fee'])
+        consultationFee: bookingItemAmount(
+          booking.items,
+          ['doctor fee', 'consultation'],
+          'referred'
+        ),
+        bookingFee: bookingItemAmount(
+          booking.items,
+          ['booking fee', 'channeling / booking fee'],
+          'inHouse'
+        )
       })
       return
     }
@@ -1003,7 +1190,7 @@ function App(): React.JSX.Element {
     if (nextOperation === 'dental') {
       setDental({
         doctorId: booking.doctor.id ?? 0,
-        registrationFee: bookingItemAmount(booking.items, ['registration fee']),
+        registrationFee: bookingItemAmount(booking.items, ['registration fee'], 'inHouse'),
         rows: bookingItemRows(booking.items, ['registration fee'])
       })
       return
@@ -1012,50 +1199,61 @@ function App(): React.JSX.Element {
     setOthersDoctorId(booking.doctor.id ?? 0)
     setOthers(
       booking.items.length > 0
-        ? booking.items.map((item) => makeRow(item.name, item.price))
+        ? booking.items.map((item) =>
+            makeRow(
+              item.name,
+              String(item.inHouseAmount ?? 0),
+              String(item.referredAmount ?? num(item.price)),
+              item.serviceId ?? null
+            )
+          )
         : [makeRow()]
     )
   }
 
-  const dentalDoctor = doctors.find((item) => item.id === dental.doctorId)
-  const dentalSplit = dental.rows.reduce(
-    (total, row) => {
-      const split = splitDental(num(row.amount), dentalDoctor)
-      return { inHouse: total.inHouse + split.inHouse, referred: total.referred + split.referred }
-    },
-    { inHouse: 0, referred: 0 }
-  )
-
   const summary =
     activeOperation === 'opd'
       ? [
-          { label: 'Doctor Fee', value: num(opd.consultationFee) },
-          { label: 'Medicine Charge', value: num(opd.medicineFee) }
+          { label: 'Doctor Fee', inHouse: 0, referred: num(opd.consultationFee) },
+          { label: 'Medicine Charge', inHouse: 0, referred: num(opd.medicineFee) }
         ]
       : activeOperation === 'channeling'
         ? [
-            { label: 'Doctor Fee', value: num(channeling.consultationFee) },
-            { label: 'Booking Fee', value: num(channeling.bookingFee) }
+            {
+              label: 'Doctor Fee',
+              inHouse: 0,
+              referred: num(channeling.consultationFee)
+            },
+            {
+              label: 'Booking Fee',
+              inHouse: num(channeling.bookingFee),
+              referred: 0
+            }
           ]
         : activeOperation === 'dental'
           ? [
-              { label: 'Registration Fee', value: num(dental.registrationFee) },
+              { label: 'Registration Fee', inHouse: num(dental.registrationFee), referred: 0 },
               ...dental.rows.map((row) => ({
                 label: row.label || 'Dental Charge',
-                value: num(row.amount)
+                inHouse: num(row.inHouseAmount),
+                referred: num(row.referredAmount),
+                serviceId: row.serviceId,
+                category: 'dental' as const
               }))
             ]
           : others.map((row) => ({
               label: row.label || 'Additional Charge',
-              value: num(row.amount)
+              inHouse: num(row.inHouseAmount),
+              referred: num(row.referredAmount),
+              serviceId: row.serviceId,
+              category: 'others' as const
             }))
-  const printableItems = summary
-    .filter((item) => item.value > 0)
-    .map<PrintLineItem>((item) => ({
-      name: item.label,
-      price: item.value.toFixed(2)
+  const summaryItems = summary
+    .map((item) => ({
+      ...item,
+      total: item.inHouse + item.referred
     }))
-  const total = summary.reduce((sum, item) => sum + item.value, 0)
+    .filter((item) => item.total > 0)
   const currentDoctorId =
     activeOperation === 'opd'
       ? opd.doctorId
@@ -1064,6 +1262,24 @@ function App(): React.JSX.Element {
         : activeOperation === 'dental'
           ? dental.doctorId
           : othersDoctorId
+  const printableItems = summary
+    .map<BillLineItem>((item) => ({
+      name: item.label,
+      price: (item.inHouse + item.referred).toFixed(2),
+      serviceId: 'serviceId' in item ? item.serviceId : null,
+      category:
+        ('category' in item ? item.category : activeOperation === 'channeling' ? 'channeling' : 'opd') ??
+        activeOperation,
+      doctorId: currentDoctorId || null,
+      inHouseAmount: item.inHouse,
+      referredAmount: item.referred,
+      totalAmount: item.inHouse + item.referred,
+      isAdHoc: !('serviceId' in item) || !item.serviceId
+    }))
+    .filter((item) => item.totalAmount && item.totalAmount > 0)
+  const total = printableItems.reduce((sum, item) => sum + (item.totalAmount ?? num(item.price)), 0)
+  const systemAmount = printableItems.reduce((sum, item) => sum + (item.inHouseAmount ?? 0), 0)
+  const referredAmount = printableItems.reduce((sum, item) => sum + (item.referredAmount ?? 0), 0)
   const currentDoctor = doctors.find((item) => item.id === currentDoctorId)
   const currentDoctorOptions = doctorOptionsForOperation(doctors, activeOperation)
   const bookingDoctorType = bookingDoctorTypeForOperation(activeOperation)
@@ -1127,23 +1343,27 @@ function App(): React.JSX.Element {
       const timestamp = new Date().toISOString()
       const servicePresets: RecentServicePreset[] = [
         ...dental.rows
-          .filter((row) => row.label.trim() && num(row.amount) > 0)
+          .filter((row) => row.label.trim() && chargeRowTotal(row) > 0)
           .map((row) => ({
             key: `dental:${dental.doctorId || 'any'}:${row.label.trim().toLowerCase()}`,
             operation: 'dental' as const,
             label: row.label.trim(),
-            amount: row.amount,
+            serviceId: row.serviceId,
+            inHouseAmount: row.inHouseAmount,
+            referredAmount: row.referredAmount,
             doctorId: dental.doctorId || null,
             useCount: 1,
             lastUsedAt: timestamp
           })),
         ...others
-          .filter((row) => row.label.trim() && num(row.amount) > 0)
+          .filter((row) => row.label.trim() && chargeRowTotal(row) > 0)
           .map((row) => ({
             key: `others:${othersDoctorId || 'any'}:${row.label.trim().toLowerCase()}`,
             operation: 'others' as const,
             label: row.label.trim(),
-            amount: row.amount,
+            serviceId: row.serviceId,
+            inHouseAmount: row.inHouseAmount,
+            referredAmount: row.referredAmount,
             doctorId: othersDoctorId || null,
             useCount: 1,
             lastUsedAt: timestamp
@@ -1167,7 +1387,13 @@ function App(): React.JSX.Element {
             ...current,
             rows: current.rows.map((row) =>
               row.label.trim().toLowerCase() === preset.label.trim().toLowerCase()
-                ? { ...row, amount: row.amount || preset.amount }
+                ? {
+                    ...row,
+                    serviceId: row.serviceId ?? preset.serviceId ?? null,
+                    inHouseAmount: row.inHouseAmount || preset.inHouseAmount || '',
+                    referredAmount:
+                      row.referredAmount || preset.referredAmount || preset.amount || ''
+                  }
                 : row
             )
           }
@@ -1176,7 +1402,15 @@ function App(): React.JSX.Element {
         return {
           ...current,
           doctorId: preset.doctorId || current.doctorId,
-          rows: [makeRow(preset.label, preset.amount), ...current.rows]
+          rows: [
+            makeRow(
+              preset.label,
+              preset.inHouseAmount ?? '',
+              preset.referredAmount ?? preset.amount ?? '',
+              preset.serviceId ?? null
+            ),
+            ...current.rows
+          ]
         }
       })
       return
@@ -1191,12 +1425,25 @@ function App(): React.JSX.Element {
       if (alreadyExists) {
         return current.map((row) =>
           row.label.trim().toLowerCase() === preset.label.trim().toLowerCase()
-            ? { ...row, amount: row.amount || preset.amount }
+            ? {
+                ...row,
+                serviceId: row.serviceId ?? preset.serviceId ?? null,
+                inHouseAmount: row.inHouseAmount || preset.inHouseAmount || '',
+                referredAmount: row.referredAmount || preset.referredAmount || preset.amount || ''
+              }
             : row
         )
       }
 
-      return [makeRow(preset.label, preset.amount), ...current]
+      return [
+        makeRow(
+          preset.label,
+          preset.inHouseAmount ?? '',
+          preset.referredAmount ?? preset.amount ?? '',
+          preset.serviceId ?? null
+        ),
+        ...current
+      ]
     })
   }
 
@@ -1218,7 +1465,7 @@ function App(): React.JSX.Element {
       setSubmitErrorWithToast('Invalid patient age', 'Patient age must be a valid number.')
       return false
     }
-    if (!currentDoctorId) {
+    if (activeOperation !== 'others' && !currentDoctorId) {
       setSubmitErrorWithToast('Doctor required', doctorRequiredMessage)
       return false
     }
@@ -1236,7 +1483,7 @@ function App(): React.JSX.Element {
     serviceType: 'opd' | 'specialist' | 'dental' | 'treatment'
     billAmount: number
     systemAmount: number
-    items: PrintLineItem[]
+    items: BillLineItem[]
   } => ({
     patient,
     doctorId: currentDoctorId,
@@ -1246,7 +1493,7 @@ function App(): React.JSX.Element {
     paymentType: 'cash' as const,
     serviceType: operationServiceType(activeOperation),
     billAmount: total,
-    systemAmount: 0,
+    systemAmount,
     items: printableItems
   })
 
@@ -1267,10 +1514,11 @@ function App(): React.JSX.Element {
         patient,
         doctorId: currentDoctorId,
         total,
+        systemAmount,
         serviceType: operationServiceType(activeOperation),
         shift: shift.toLowerCase() as 'morning' | 'evening',
         date: billDate,
-        doctorName: currentDoctor?.name ?? '',
+        doctorName: currentDoctor?.name ?? 'No doctor',
         paymentType: 'cash',
         items: printableItems
       })
@@ -1339,7 +1587,7 @@ function App(): React.JSX.Element {
                   shift: shift.toLowerCase() as 'morning' | 'evening',
                   serviceType: operationServiceType(activeOperation),
                   billAmount: total,
-                  systemAmount: 0,
+                  systemAmount,
                   items: printableItems
                 }
               : item
@@ -1516,7 +1764,7 @@ function App(): React.JSX.Element {
   }
 
   return (
-    <main className="min-h-screen p-4 text-white sm:p-5">
+    <main className="min-h-screen bg-background p-4 text-theme-strong sm:p-5" style={{ backgroundImage: 'var(--body-bg-image)' }}>
       <ToastRegion toasts={toasts} onDismiss={dismissToast} />
       <Modal
         isOpen={paymentPromptBooking !== null}
@@ -1586,25 +1834,34 @@ function App(): React.JSX.Element {
         ) : null}
       </Modal>
       <div className="mx-auto flex max-w-6xl flex-col gap-4">
-        <section className="relative overflow-hidden rounded-xl border border-border/90 bg-[linear-gradient(180deg,rgba(12,19,30,0.98),rgba(16,25,39,0.94))] p-4 shadow-[0_24px_50px_rgba(3,9,18,0.3)]">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.12),transparent_32%)]" />
+        <section className="app-shell relative overflow-hidden rounded-xl border p-4">
           <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-1">
               <span className="inline-flex rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
                 Medical Center Billing
               </span>
               <div>
-                <h1 className="text-xl font-semibold tracking-tight">
+                <h1 className="text-theme-strong text-xl font-semibold tracking-tight">
                   Simple billing flow for clinic operators
                 </h1>
-                <p className="text-xs text-slate-400">
+                <p className="text-theme-muted text-xs">
                   Search patient details, select visit type, enter charges, and generate a bill or
                   save a booking.
                 </p>
               </div>
             </div>
             <div className="flex flex-wrap gap-3">
-              <label className="flex min-w-40 items-center gap-2 rounded-lg border border-border/90 bg-[#16202c] px-3 py-1.5 text-xs text-slate-200">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={toggleThemeMode}
+                className="panel-shell h-11 w-11 rounded-lg"
+                title={themeMode === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+              >
+                {themeMode === 'dark' ? <SunMedium /> : <MoonStar />}
+              </Button>
+              <label className="panel-shell flex min-w-40 items-center gap-2 rounded-lg border px-3 py-1.5 text-xs">
                 <input
                   type="checkbox"
                   checked={isBooking}
@@ -1616,17 +1873,17 @@ function App(): React.JSX.Element {
                       setSavedBooking(null)
                     }
                   }}
-                  className="h-4 w-4 rounded border-border/90 bg-[#0f161f] text-primary focus:ring-primary/30"
+                  className="panel-inner-shell h-4 w-4 rounded border-border/90 text-primary focus:ring-primary/30"
                 />
                 <span>
-                  <span className="block text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                  <span className="text-theme-muted block text-[10px] font-semibold uppercase tracking-[0.22em]">
                     Booking
                   </span>
-                  <span className="block text-xs text-slate-200">Save this visit as a booking</span>
+                  <span className="text-theme-soft block text-xs">Save this visit as a booking</span>
                 </span>
               </label>
-              <div className="min-w-35 rounded-lg border border-border/90 bg-[#16202c] px-3 py-1.5">
-                <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+              <div className="panel-shell min-w-35 rounded-lg border px-3 py-1.5">
+                <p className="text-theme-muted text-[10px] font-semibold uppercase tracking-wider">
                   Date
                 </p>
                 <Input
@@ -1639,11 +1896,11 @@ function App(): React.JSX.Element {
                   )}
                 />
               </div>
-              <div className="min-w-45 rounded-lg border border-border/90 bg-[#16202c] px-3 py-1.5">
-                <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+              <div className="panel-shell min-w-45 rounded-lg border px-3 py-1.5">
+                <p className="text-theme-muted text-[10px] font-semibold uppercase tracking-wider">
                   Shift
                 </p>
-                <div className="mt-1 flex rounded-md border border-border/90 bg-[#0f161f] p-0.5">
+                <div className="panel-inner-shell mt-1 flex rounded-md border p-0.5">
                   {(['Morning', 'Evening'] as Shift[]).map((option) => (
                     <button
                       key={option}
@@ -1653,7 +1910,7 @@ function App(): React.JSX.Element {
                         'flex-1 rounded px-3 py-1 text-[11px] font-medium transition',
                         shift === option
                           ? 'bg-primary text-primary-foreground shadow-[0_10px_22px_rgba(34,211,238,0.24)]'
-                          : 'text-slate-400 hover:bg-white/4'
+                          : 'text-theme-muted panel-hover-shell'
                       )}
                     >
                       {option}
@@ -1664,7 +1921,7 @@ function App(): React.JSX.Element {
             </div>
           </div>
         </section>
-        <section className="rounded-xl border border-border/90 bg-[linear-gradient(180deg,rgba(11,17,28,0.96),rgba(9,14,22,0.92))] p-2 shadow-[0_18px_40px_rgba(3,9,18,0.2)]">
+        <section className="workspace-shell rounded-xl border p-2">
           <div className="grid gap-2 md:grid-cols-3">
             {(
               [
@@ -1695,23 +1952,23 @@ function App(): React.JSX.Element {
                   'rounded-lg border px-4 py-3 text-left transition',
                   workspaceTab === tab.id
                     ? 'border-primary/35 bg-primary/10 shadow-[0_12px_28px_rgba(34,211,238,0.14)]'
-                    : 'border-transparent bg-white/[0.025] hover:border-border/90 hover:bg-white/[0.04]'
+                    : 'border-transparent panel-soft-shell hover:border-border/90 panel-hover-shell'
                 )}
               >
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    <p className="text-theme-muted text-[10px] font-semibold uppercase tracking-[0.22em]">
                       Workspace
                     </p>
-                    <h2 className="mt-1 text-sm font-semibold text-white">{tab.title}</h2>
-                    <p className="mt-1 text-xs text-slate-400">{tab.subtitle}</p>
+                    <h2 className="text-theme-strong mt-1 text-sm font-semibold">{tab.title}</h2>
+                    <p className="text-theme-muted mt-1 text-xs">{tab.subtitle}</p>
                   </div>
                   <span
                     className={cn(
                       'h-2.5 w-2.5 rounded-full transition',
                       workspaceTab === tab.id
                         ? 'bg-primary shadow-[0_0_18px_rgba(34,211,238,0.8)]'
-                        : 'bg-slate-700'
+                        : 'bg-theme-idle'
                     )}
                   />
                 </div>
@@ -1799,13 +2056,13 @@ function App(): React.JSX.Element {
                       onChange={(event) => setPatientField('gender', event.target.value)}
                       className={selectClassName}
                     >
-                      <option value="Male" className="bg-slate-900">
+                      <option value="Male">
                         Male
                       </option>
-                      <option value="Female" className="bg-slate-900">
+                      <option value="Female">
                         Female
                       </option>
-                      <option value="Other" className="bg-slate-900">
+                      <option value="Other">
                         Other
                       </option>
                     </select>
@@ -1851,7 +2108,7 @@ function App(): React.JSX.Element {
                             onClick={() => applyRecentServicePreset(preset)}
                             className="rounded-full border border-border/90 bg-[#111923] px-3 py-1.5 text-xs text-slate-100 transition hover:border-primary/35 hover:bg-primary/10 hover:text-white"
                           >
-                            {preset.label} · {money(num(preset.amount))}
+                            {preset.label} / {money(num(preset.inHouseAmount ?? '0') + num(preset.referredAmount ?? preset.amount ?? '0'))}
                           </button>
                         ))}
                       </div>
@@ -1876,7 +2133,7 @@ function App(): React.JSX.Element {
                           disabled={doctorLoading || currentDoctorOptions.length === 0}
                         >
                           {currentDoctorOptions.map((item) => (
-                            <option key={item.id} value={item.id} className="bg-slate-900">
+                            <option key={item.id} value={item.id}>
                               {item.name} - {item.specialty}
                             </option>
                           ))}
@@ -1930,7 +2187,7 @@ function App(): React.JSX.Element {
                           disabled={doctorLoading || currentDoctorOptions.length === 0}
                         >
                           {currentDoctorOptions.map((item) => (
-                            <option key={item.id} value={item.id} className="bg-slate-900">
+                            <option key={item.id} value={item.id}>
                               {item.name} - {item.specialty}
                             </option>
                           ))}
@@ -1988,7 +2245,7 @@ function App(): React.JSX.Element {
                             disabled={doctorLoading || currentDoctorOptions.length === 0}
                           >
                             {currentDoctorOptions.map((item) => (
-                              <option key={item.id} value={item.id} className="bg-slate-900">
+                              <option key={item.id} value={item.id}>
                                 {item.name} - {item.specialty}
                               </option>
                             ))}
@@ -2011,90 +2268,98 @@ function App(): React.JSX.Element {
                         </div>
                       </div>
                       <div className="space-y-2.5">
-                        {dental.rows.map((row) => {
-                          const split = splitDental(
-                            num(row.amount),
-                            doctors.find((item) => item.id === dental.doctorId)
-                          )
-                          return (
-                            <div
-                              key={row.id}
-                              className="grid gap-3 rounded-lg border border-border/90 bg-white/2 p-3 lg:grid-cols-[1fr_120px_160px_80px]"
-                            >
-                              <div>
-                                <Label>Label</Label>
-                                <Input
-                                  value={row.label}
-                                  onChange={(event) =>
-                                    setDental((current) => ({
-                                      ...current,
-                                      rows: current.rows.map((item) =>
-                                        item.id === row.id
-                                          ? { ...item, label: event.target.value }
-                                          : item
-                                      )
-                                    }))
-                                  }
-                                  placeholder="Treatment name"
-                                  className={inputClassName}
-                                />
-                              </div>
-                              <div>
-                                <Label>Charge</Label>
-                                <Input
-                                  type="number"
-                                  value={row.amount}
-                                  onChange={(event) =>
-                                    setDental((current) => ({
-                                      ...current,
-                                      rows: current.rows.map((item) =>
-                                        item.id === row.id
-                                          ? { ...item, amount: event.target.value }
-                                          : item
-                                      )
-                                    }))
-                                  }
-                                  placeholder="0"
-                                  className={inputClassName}
-                                />
-                              </div>
-                              <div className="grid grid-cols-2 gap-1.5 rounded-md border border-border/90 bg-[#111923] p-2">
-                                <div className="space-y-0.5">
-                                  <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
-                                    In-house
-                                  </p>
-                                  <p className="text-[11px] font-semibold text-primary">
-                                    {money(split.inHouse)}
-                                  </p>
-                                </div>
-                                <div className="space-y-0.5">
-                                  <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
-                                    Referred
-                                  </p>
-                                  <p className="text-[11px] font-semibold text-slate-100">
-                                    {money(split.referred)}
-                                  </p>
-                                </div>
-                              </div>
-                              <div className="flex items-end">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  onClick={() =>
-                                    setDental((current) => ({
-                                      ...current,
-                                      rows: current.rows.filter((item) => item.id !== row.id)
-                                    }))
-                                  }
-                                  disabled={dental.rows.length === 1}
-                                  className={cn(softButtonClassName, 'w-full')}
-                                >
-                                  Remove
-                                </Button>
-                              </div>
+                        {dental.rows.map((row) => (
+                          <div
+                            key={row.id}
+                            className="grid gap-3 rounded-lg border border-border/90 bg-white/2 p-3 lg:grid-cols-[1.4fr_120px_120px_90px]"
+                          >
+                            <div>
+                              <Label>Service</Label>
+                              <Input
+                                list={`dental-services-${row.id}`}
+                                value={row.label}
+                                onChange={(event) => {
+                                  const value = event.target.value
+                                  setDental((current) => ({
+                                    ...current,
+                                    rows: current.rows.map((item) =>
+                                      item.id === row.id
+                                        ? { ...item, label: value, serviceId: null }
+                                        : item
+                                    )
+                                  }))
+                                  void fetchServiceSuggestions(row.id, value, 'dental')
+                                }}
+                                onBlur={(event) =>
+                                  applySuggestedService('dental', row.id, event.target.value)
+                                }
+                                placeholder="Treatment name"
+                                className={inputClassName}
+                              />
+                              <datalist id={`dental-services-${row.id}`}>
+                                {(serviceSuggestions[row.id] ?? []).map((item) => (
+                                  <option key={`${row.id}-${item.id}-${item.name}`} value={item.name}>
+                                    {item.name}
+                                  </option>
+                                ))}
+                              </datalist>
                             </div>
-                          )
-                        })}
+                            <div>
+                              <Label>In-house</Label>
+                              <Input
+                                type="number"
+                                value={row.inHouseAmount}
+                                onChange={(event) =>
+                                  setDental((current) => ({
+                                    ...current,
+                                    rows: current.rows.map((item) =>
+                                      item.id === row.id
+                                        ? { ...item, inHouseAmount: event.target.value }
+                                        : item
+                                    )
+                                  }))
+                                }
+                                placeholder="0"
+                                className={inputClassName}
+                              />
+                            </div>
+                            <div>
+                              <Label>Referred</Label>
+                              <Input
+                                type="number"
+                                value={row.referredAmount}
+                                onChange={(event) =>
+                                  setDental((current) => ({
+                                    ...current,
+                                    rows: current.rows.map((item) =>
+                                      item.id === row.id
+                                        ? { ...item, referredAmount: event.target.value }
+                                        : item
+                                    )
+                                  }))
+                                }
+                                placeholder="0"
+                                className={inputClassName}
+                              />
+                            </div>
+                            <div className="flex items-end">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() =>
+                                  setDental((current) => ({
+                                    ...current,
+                                    rows: current.rows.filter((item) => item.id !== row.id)
+                                  }))
+                                }
+                                disabled={dental.rows.length === 1}
+                                className={cn(softButtonClassName, 'w-full')}
+                              >
+                                Remove
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                       <Button
                         type="button"
@@ -2102,7 +2367,7 @@ function App(): React.JSX.Element {
                         onClick={() =>
                           setDental((current) => ({
                             ...current,
-                            rows: [...current.rows, makeRow('New Dental Charge', '')]
+                            rows: [...current.rows, makeRow('New Dental Charge')]
                           }))
                         }
                         className={softButtonClassName}
@@ -2119,10 +2384,13 @@ function App(): React.JSX.Element {
                           value={othersDoctorId}
                           onChange={(event) => setOthersDoctorId(Number(event.target.value))}
                           className={selectClassName}
-                          disabled={doctorLoading || currentDoctorOptions.length === 0}
+                          disabled={doctorLoading}
                         >
+                          <option value={0}>
+                            No doctor
+                          </option>
                           {currentDoctorOptions.map((item) => (
-                            <option key={item.id} value={item.id} className="bg-slate-900">
+                            <option key={item.id} value={item.id}>
                               {item.name} - {item.specialty}
                             </option>
                           ))}
@@ -2131,35 +2399,66 @@ function App(): React.JSX.Element {
                       {others.map((row) => (
                         <div
                           key={row.id}
-                          className="grid gap-3 rounded-lg border border-border/90 bg-white/2 p-3 lg:grid-cols-[1fr_120px_80px]"
+                          className="grid gap-3 rounded-lg border border-border/90 bg-white/2 p-3 lg:grid-cols-[1.4fr_120px_120px_90px]"
                         >
                           <div>
-                            <Label>Label</Label>
+                            <Label>Service</Label>
                             <Input
+                              list={`other-services-${row.id}`}
                               value={row.label}
-                              onChange={(event) =>
+                              onChange={(event) => {
+                                const value = event.target.value
                                 setOthers((current) =>
                                   current.map((item) =>
                                     item.id === row.id
-                                      ? { ...item, label: event.target.value }
+                                      ? { ...item, label: value, serviceId: null }
                                       : item
                                   )
                                 )
+                                void fetchServiceSuggestions(row.id, value, 'others')
+                              }}
+                              onBlur={(event) =>
+                                applySuggestedService('others', row.id, event.target.value)
                               }
                               placeholder="Report or treatment name"
                               className={inputClassName}
                             />
+                            <datalist id={`other-services-${row.id}`}>
+                              {(serviceSuggestions[row.id] ?? []).map((item) => (
+                                <option key={`${row.id}-${item.id}-${item.name}`} value={item.name}>
+                                  {item.name}
+                                </option>
+                              ))}
+                            </datalist>
                           </div>
                           <div>
-                            <Label>Charge</Label>
+                            <Label>In-house</Label>
                             <Input
                               type="number"
-                              value={row.amount}
+                              value={row.inHouseAmount}
                               onChange={(event) =>
                                 setOthers((current) =>
                                   current.map((item) =>
                                     item.id === row.id
-                                      ? { ...item, amount: event.target.value }
+                                      ? { ...item, inHouseAmount: event.target.value }
+                                      : item
+                                  )
+                                )
+                              }
+                              placeholder="0"
+                              className={inputClassName}
+                            />
+                          </div>
+                          <div>
+                            <Label>Referred</Label>
+                            <Input
+                              type="number"
+                              value={row.referredAmount}
+                              onChange={(event) =>
+                                setOthers((current) =>
+                                  current.map((item) =>
+                                    item.id === row.id
+                                      ? { ...item, referredAmount: event.target.value }
                                       : item
                                   )
                                 )
@@ -2186,9 +2485,7 @@ function App(): React.JSX.Element {
                       <Button
                         type="button"
                         variant="outline"
-                        onClick={() =>
-                          setOthers((current) => [...current, makeRow('Additional Charge', '')])
-                        }
+                        onClick={() => setOthers((current) => [...current, makeRow('Additional Charge')])}
                         className={softButtonClassName}
                       >
                         Add Charge Row
@@ -2226,24 +2523,24 @@ function App(): React.JSX.Element {
                     </div>
                   </div>
                   <div className="space-y-2 rounded-lg border border-border/90 bg-white/2 p-3">
-                    {summary.map((item) => (
+                    {summaryItems.map((item) => (
                       <div
                         key={item.label}
                         className="flex items-center justify-between text-[13px]"
                       >
                         <span className="text-slate-400 font-medium">{item.label}</span>
-                        <span className="text-slate-100">{money(item.value)}</span>
+                        <span className="text-slate-100">{money(item.total)}</span>
                       </div>
                     ))}
                   </div>
-                  {activeOperation === 'dental' ? (
+                  {activeOperation !== 'opd' ? (
                     <div className="grid grid-cols-2 gap-2">
                       <div className="rounded-lg border border-border/90 bg-white/2 p-2.5">
                         <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
                           In-house
                         </p>
                         <p className="text-sm font-semibold text-primary">
-                          {money(dentalSplit.inHouse)}
+                          {money(systemAmount)}
                         </p>
                       </div>
                       <div className="rounded-lg border border-border/90 bg-white/2 p-2.5">
@@ -2251,35 +2548,35 @@ function App(): React.JSX.Element {
                           Referred
                         </p>
                         <p className="text-sm font-semibold text-slate-100">
-                          {money(dentalSplit.referred)}
+                          {money(referredAmount)}
                         </p>
                       </div>
                     </div>
                   ) : null}
-                  <div className="rounded-lg border border-primary/20 bg-[linear-gradient(180deg,rgba(24,56,74,0.92),rgba(19,46,61,0.96))] p-4 text-center">
+                  <div className="grand-total-shell rounded-lg border p-4 text-center">
                     <p className="text-[10px] uppercase tracking-widest text-primary font-bold">
                       Grand Total
                     </p>
-                    <p className="mt-1 text-2xl font-bold tracking-tight text-white">
+                    <p className="text-grand-total mt-1 text-2xl font-bold tracking-tight">
                       {money(total)}
                     </p>
                   </div>
                   {submitState.status !== 'idle' ? (
                     <div
                       className={cn(
-                        'rounded-lg px-3 py-2 text-xs',
+                        'status-message rounded-lg px-3 py-2 text-xs',
                         submitState.status === 'success'
-                          ? 'border border-emerald-400/25 bg-emerald-500/10 text-emerald-100'
+                          ? 'status-success border border-emerald-400/25'
                           : submitState.status === 'error'
-                            ? 'border border-rose-400/25 bg-rose-500/10 text-rose-100'
-                            : 'border border-primary/20 bg-primary/10 text-primary'
+                            ? 'status-error border border-rose-400/25'
+                            : 'status-info border border-primary/20'
                       )}
                     >
                       {submitState.message}
                     </div>
                   ) : null}
                   {isBooking && currentSavedBooking ? (
-                    <div className="rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-xs text-primary">
+                    <div className="status-message status-info rounded-lg border border-primary/20 px-3 py-2 text-xs">
                       Saved booking
                       {currentSavedBooking.record.bookingNumber
                         ? ` #${currentSavedBooking.record.bookingNumber}`
@@ -2290,13 +2587,13 @@ function App(): React.JSX.Element {
                     </div>
                   ) : null}
                   {isBooking && editingBooking ? (
-                    <div className="rounded-lg border border-sky-400/20 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">
+                    <div className="status-message status-sky rounded-lg border border-sky-400/20 px-3 py-2 text-xs">
                       Editing booking
                       {editingBooking.reference ? ` - ${editingBooking.reference}` : ''}
                     </div>
                   ) : null}
                   {isBooking && !bookingDoctorType ? (
-                    <div className="rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                    <div className="status-message status-warning rounded-lg border border-amber-400/25 px-3 py-2 text-xs">
                       Booking mode currently supports Channeling and Dental visits with the
                       available public API.
                     </div>
@@ -2591,3 +2888,5 @@ function App(): React.JSX.Element {
 }
 
 export default App
+
+

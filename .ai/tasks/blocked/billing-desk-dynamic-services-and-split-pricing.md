@@ -3,7 +3,7 @@
 ## Meta
 
 - ID: `TASK-115`
-- Status: `planned`
+- Status: `blocked`
 - Owner: `agent`
 - Source: `.ai/tasks/inbox/raw-user-tasks.md` note added on `2026-04-01`
 - Last Updated: `2026-04-01`
@@ -45,9 +45,18 @@ Update the Billing Desk so Others, Channeling, and Dental support API-backed ser
 - what exact request shape should the bill creation API accept for mixed in-house/referred service items across Others, Dental, and Channeling
 - should ad hoc typed services be persisted immediately as new `services` records, or only when the bill is finalized
 
+## Blocked On
+
+- backend service search/autocomplete endpoint for receptionist-safe Electron use
+- backend bill create/update/read support for split in-house/referred items
+- backend doctor billing config defaults for Channeling and Dental
+
 ## Done When
 
 - Billing Desk supports API-backed service lookup and entry for the requested tabs
 - in-house and referred amounts are captured and sent separately where required
 - Others supports bills without a doctor and includes custom services in bill creation
 - the app-side work is documented in code/task tracking with any backend dependency clearly called out
+
+
+
