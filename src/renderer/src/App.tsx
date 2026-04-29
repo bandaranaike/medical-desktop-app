@@ -1293,8 +1293,11 @@ function App(): React.JSX.Element {
       price: (item.inHouse + item.referred).toFixed(2),
       serviceId: 'serviceId' in item ? item.serviceId : null,
       category:
-        ('category' in item ? item.category : activeOperation === 'channeling' ? 'channeling' : 'opd') ??
-        activeOperation,
+        ('category' in item
+          ? item.category
+          : activeOperation === 'channeling'
+            ? 'channeling'
+            : 'opd') ?? activeOperation,
       doctorId: currentDoctorId || null,
       inHouseAmount: item.inHouse,
       referredAmount: item.referred,
@@ -1789,7 +1792,10 @@ function App(): React.JSX.Element {
   }
 
   return (
-    <main className="min-h-screen bg-background p-4 text-theme-strong sm:p-5" style={{ backgroundImage: 'var(--body-bg-image)' }}>
+    <main
+      className="min-h-screen bg-background p-4 text-theme-strong sm:p-5"
+      style={{ backgroundImage: 'var(--body-bg-image)' }}
+    >
       <ToastRegion toasts={toasts} onDismiss={dismissToast} />
       <Modal
         isOpen={paymentPromptBooking !== null}
@@ -1904,7 +1910,9 @@ function App(): React.JSX.Element {
                   <span className="text-theme-muted block text-[10px] font-semibold uppercase tracking-[0.22em]">
                     Booking
                   </span>
-                  <span className="text-theme-soft block text-xs">Save this visit as a booking</span>
+                  <span className="text-theme-soft block text-xs">
+                    Save this visit as a booking
+                  </span>
                 </span>
               </label>
               <div className="panel-shell min-w-35 rounded-lg border px-3 py-1.5">
@@ -2081,15 +2089,9 @@ function App(): React.JSX.Element {
                       onChange={(event) => setPatientField('gender', event.target.value)}
                       className={selectClassName}
                     >
-                      <option value="Male">
-                        Male
-                      </option>
-                      <option value="Female">
-                        Female
-                      </option>
-                      <option value="Other">
-                        Other
-                      </option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
                     </select>
                   </div>
                   <div className="md:col-span-2 xl:col-span-3">
@@ -2133,7 +2135,11 @@ function App(): React.JSX.Element {
                             onClick={() => applyRecentServicePreset(preset)}
                             className="rounded-full border border-border/90 bg-[#111923] px-3 py-1.5 text-xs text-slate-100 transition hover:border-primary/35 hover:bg-primary/10 hover:text-white"
                           >
-                            {preset.label} / {money(num(preset.inHouseAmount ?? '0') + num(preset.referredAmount ?? preset.amount ?? '0'))}
+                            {preset.label} /{' '}
+                            {money(
+                              num(preset.inHouseAmount ?? '0') +
+                                num(preset.referredAmount ?? preset.amount ?? '0')
+                            )}
                           </button>
                         ))}
                       </div>
@@ -2323,7 +2329,10 @@ function App(): React.JSX.Element {
                               />
                               <datalist id={`dental-services-${row.id}`}>
                                 {(serviceSuggestions[row.id] ?? []).map((item) => (
-                                  <option key={`${row.id}-${item.id}-${item.name}`} value={item.name}>
+                                  <option
+                                    key={`${row.id}-${item.id}-${item.name}`}
+                                    value={item.name}
+                                  >
                                     {item.name}
                                   </option>
                                 ))}
@@ -2411,9 +2420,7 @@ function App(): React.JSX.Element {
                           className={selectClassName}
                           disabled={doctorLoading}
                         >
-                          <option value={0}>
-                            No doctor
-                          </option>
+                          <option value={0}>No doctor</option>
                           {currentDoctorOptions.map((item) => (
                             <option key={item.id} value={item.id}>
                               {item.name} - {item.specialty}
@@ -2510,7 +2517,9 @@ function App(): React.JSX.Element {
                       <Button
                         type="button"
                         variant="outline"
-                        onClick={() => setOthers((current) => [...current, makeRow('Additional Charge')])}
+                        onClick={() =>
+                          setOthers((current) => [...current, makeRow('Additional Charge')])
+                        }
                         className={softButtonClassName}
                       >
                         Add Charge Row
@@ -2564,9 +2573,7 @@ function App(): React.JSX.Element {
                         <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
                           In-house
                         </p>
-                        <p className="text-sm font-semibold text-primary">
-                          {money(systemAmount)}
-                        </p>
+                        <p className="text-sm font-semibold text-primary">{money(systemAmount)}</p>
                       </div>
                       <div className="rounded-lg border border-border/90 bg-white/2 p-2.5">
                         <p className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">
@@ -2811,7 +2818,9 @@ function App(): React.JSX.Element {
             <SurfaceCard eyebrow="Reports" title="Summary prints" className="overflow-hidden">
               <div className="space-y-4">
                 <div className="rounded-lg border border-border/90 bg-[#111923] p-4">
-                  <p className="text-sm font-semibold text-white">Print service totals for {billDate}</p>
+                  <p className="text-sm font-semibold text-white">
+                    Print service totals for {billDate}
+                  </p>
                   <p className="mt-1 text-xs text-slate-400">
                     Use the selected date above to print the morning or evening report.
                   </p>
@@ -2913,5 +2922,3 @@ function App(): React.JSX.Element {
 }
 
 export default App
-
-

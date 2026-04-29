@@ -298,7 +298,6 @@
 
   .grand-total-shell {
     border-color: hsl(var(--border) / 0.9);
-    background: var(--grand-total-bg);
   }
 
   .toast-shell {
