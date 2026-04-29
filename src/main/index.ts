@@ -24,6 +24,7 @@ const DEFAULT_RUNTIME_CONFIG = [
   'API_KEY=',
   'API_REFERER=http://test-b.local',
   'API_AUTH_TOKEN=',
+  'THEME_BASE_COLOR=#522e90',
   '# Optional override. When set, PRINTER_PORT is still applied to this host.',
   'PRINTER_BASE_URL=http://127.0.0.1',
   'PRINTER_PORT=5000',
@@ -265,6 +266,10 @@ type AppNotification = {
   message: string
 }
 
+type ThemeConfig = {
+  baseColor: string
+}
+
 type PrinterConfig = {
   baseUrl: string
   folderPath: string
@@ -365,6 +370,24 @@ function parsePort(value: string | undefined, fallback: number): number {
   }
 
   return parsed
+}
+
+function getThemeConfig(): ThemeConfig {
+  const baseColor = process.env['THEME_BASE_COLOR']?.trim() || '#522e90'
+
+  if (/^#?[0-9a-fA-F]{6}$/.test(baseColor)) {
+    return {
+      baseColor: baseColor.startsWith('#') ? baseColor : `#${baseColor}`
+    }
+  }
+
+  console.warn(
+    `Invalid THEME_BASE_COLOR in ${getConfigSourceLabel()}: ${baseColor}. Falling back to #522e90.`
+  )
+
+  return {
+    baseColor: '#522e90'
+  }
 }
 
 function getPrinterConfig(): PrinterConfig {
@@ -1367,6 +1390,10 @@ handlePromiseError(
 
     ipcMain.handle('patients:search', async (_, query: string) => {
       return searchPatients(query)
+    })
+
+    ipcMain.handle('theme:config', async () => {
+      return getThemeConfig()
     })
 
     ipcMain.handle('doctors:list', async (_, options?: DoctorListOptions) => {

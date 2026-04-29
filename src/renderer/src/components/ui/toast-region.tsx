@@ -35,9 +35,9 @@ const toastStyles: Record<
   },
   info: {
     icon: Info,
-    shell: 'toast-shell toast-info border-cyan-300/25',
-    badge: 'toast-badge toast-badge-info border-cyan-200/20',
-    iconColor: 'text-cyan-200'
+    shell: 'toast-shell toast-info border-primary/25',
+    badge: 'toast-badge toast-badge-info border-primary/20',
+    iconColor: 'text-primary'
   },
   success: {
     icon: CheckCircle2,

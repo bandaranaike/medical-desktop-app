@@ -195,10 +195,15 @@ type AppNotification = {
   message: string
 }
 
+type ThemeConfig = {
+  baseColor: string
+}
+
 declare global {
   interface Window {
     api: {
       listUsers(): Promise<Array<{ id: number; [key: string]: unknown }>>
+      getThemeConfig(): Promise<ThemeConfig>
       searchPatients(query: string): Promise<PatientRecord[]>
       listDoctors(options?: DoctorListOptions): Promise<DoctorRecord[]>
       searchBillingServices(

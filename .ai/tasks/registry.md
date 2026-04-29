@@ -24,6 +24,7 @@ This is the current structured task index for `.ai/tasks/`.
 | TASK-115 | blocked | Billing Desk Dynamic Services And Split Pricing | `.ai/tasks/blocked/billing-desk-dynamic-services-and-split-pricing.md` | renderer and IPC updated; backend API additions still required as of 2026-04-01 |
 | TASK-116 | done | Backend API Contract For Billing Services | `.ai/tasks/done/backend-api-contract-for-billing-services.md` | API change document created on 2026-04-01 |
 | TASK-117 | done | Light Theme Toggle | `.ai/tasks/done/light-theme-toggle.md` | light theme and header toggle implemented on 2026-04-01 |
+| TASK-118 | done | Runtime Theme Accent Color | `.ai/tasks/done/runtime-theme-accent-color.md` | `.env`-driven accent palette for dark and light themes implemented and typechecked on 2026-04-28 |
 
 ## Notes
 

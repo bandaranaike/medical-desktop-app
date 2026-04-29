@@ -34,90 +34,184 @@
 
 @layer base {
   :root {
-    --background: 222 26% 8%;
-    --foreground: 210 33% 97%;
-    --card: 220 26% 11%;
-    --card-foreground: 210 33% 97%;
-    --popover: 220 28% 9%;
-    --popover-foreground: 210 33% 97%;
-    --primary: 190 90% 52%;
-    --primary-foreground: 222 47% 10%;
-    --secondary: 221 24% 14%;
-    --secondary-foreground: 210 33% 97%;
-    --muted: 221 21% 16%;
-    --muted-foreground: 215 16% 71%;
-    --accent: 221 22% 15%;
-    --accent-foreground: 210 40% 98%;
+    --theme-background-dark: 222 26% 8%;
+    --theme-foreground-dark: 210 33% 97%;
+    --theme-card-dark: 220 26% 11%;
+    --theme-card-foreground-dark: 210 33% 97%;
+    --theme-popover-dark: 220 28% 9%;
+    --theme-popover-foreground-dark: 210 33% 97%;
+    --theme-primary-dark: 190 90% 52%;
+    --theme-primary-foreground-dark: 222 47% 10%;
+    --theme-secondary-dark: 221 24% 14%;
+    --theme-secondary-foreground-dark: 210 33% 97%;
+    --theme-muted-dark: 221 21% 16%;
+    --theme-muted-foreground-dark: 215 16% 71%;
+    --theme-accent-dark: 221 22% 15%;
+    --theme-accent-foreground-dark: 210 40% 98%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
-    --border: 205 35% 18%;
-    --input: 220 20% 17%;
-    --ring: 190 90% 52%;
+    --theme-border-dark: 205 35% 18%;
+    --theme-input-dark: 220 20% 17%;
+    --theme-ring-dark: 190 90% 52%;
+    --theme-background-light: 195 43% 96%;
+    --theme-foreground-light: 221 39% 17%;
+    --theme-card-light: 0 0% 100%;
+    --theme-card-foreground-light: 221 39% 17%;
+    --theme-popover-light: 0 0% 100%;
+    --theme-popover-foreground-light: 221 39% 17%;
+    --theme-primary-light: 190 86% 40%;
+    --theme-primary-foreground-light: 0 0% 100%;
+    --theme-secondary-light: 196 32% 92%;
+    --theme-secondary-foreground-light: 221 39% 17%;
+    --theme-muted-light: 194 24% 91%;
+    --theme-muted-foreground-light: 215 21% 42%;
+    --theme-accent-light: 194 33% 92%;
+    --theme-accent-foreground-light: 221 39% 17%;
+    --theme-border-light: 197 26% 82%;
+    --theme-input-light: 0 0% 100%;
+    --theme-ring-light: 190 86% 40%;
     --radius: 0.5rem;
     --font-sans: 'Google Sans', ui-sans-serif, system-ui, sans-serif;
-    --app-shell-bg: linear-gradient(180deg, rgba(12, 19, 30, 0.98), rgba(16, 25, 39, 0.94));
-    --app-shell-shadow: 0 24px 50px rgba(3, 9, 18, 0.3);
-    --app-shell-glow: radial-gradient(circle at top left, rgba(34, 211, 238, 0.12), transparent 32%);
-    --workspace-bg: linear-gradient(180deg, rgba(11, 17, 28, 0.96), rgba(9, 14, 22, 0.92));
-    --workspace-shadow: 0 18px 40px rgba(3, 9, 18, 0.2);
-    --surface-bg: linear-gradient(180deg, rgba(16, 23, 35, 0.96), rgba(13, 19, 29, 0.92));
-    --surface-shadow: 0 18px 40px rgba(3, 9, 18, 0.26);
-    --panel-bg: #16202c;
-    --panel-inner-bg: #0f161f;
-    --panel-soft-bg: rgba(255, 255, 255, 0.035);
-    --panel-hover-bg: rgba(255, 255, 255, 0.04);
-    --text-strong: #ffffff;
-    --text-soft: #cbd5e1;
-    --text-muted: #94a3b8;
-    --dot-idle: #334155;
-    --body-bg-image:
+    --theme-app-shell-bg-dark: linear-gradient(180deg, rgba(12, 19, 30, 0.98), rgba(16, 25, 39, 0.94));
+    --theme-app-shell-shadow-dark: 0 24px 50px rgba(3, 9, 18, 0.3);
+    --theme-app-shell-glow-dark: radial-gradient(circle at top left, rgba(34, 211, 238, 0.12), transparent 32%);
+    --theme-workspace-bg-dark: linear-gradient(180deg, rgba(11, 17, 28, 0.96), rgba(9, 14, 22, 0.92));
+    --theme-workspace-shadow-dark: 0 18px 40px rgba(3, 9, 18, 0.2);
+    --theme-surface-bg-dark: linear-gradient(180deg, rgba(16, 23, 35, 0.96), rgba(13, 19, 29, 0.92));
+    --theme-surface-shadow-dark: 0 18px 40px rgba(3, 9, 18, 0.26);
+    --theme-panel-bg-dark: #16202c;
+    --theme-panel-inner-bg-dark: #0f161f;
+    --theme-panel-soft-bg-dark: rgba(255, 255, 255, 0.035);
+    --theme-panel-hover-bg-dark: rgba(255, 255, 255, 0.04);
+    --theme-text-strong-dark: #ffffff;
+    --theme-text-soft-dark: #cbd5e1;
+    --theme-text-muted-dark: #94a3b8;
+    --theme-dot-idle-dark: #334155;
+    --theme-body-bg-image-dark:
       radial-gradient(circle at top left, hsla(190, 90%, 52%, 0.14) 0px, transparent 30%),
       radial-gradient(circle at top right, hsla(200, 80%, 45%, 0.08) 0px, transparent 26%),
       linear-gradient(180deg, hsl(220 21% 10%) 0%, hsl(222 22% 8%) 100%);
-    --grand-total-bg: linear-gradient(180deg, rgba(24, 56, 74, 0.92), rgba(19, 46, 61, 0.96));
-    --grand-total-value: #ffffff;
+    --theme-grand-total-bg-dark: linear-gradient(180deg, rgba(24, 56, 74, 0.92), rgba(19, 46, 61, 0.96));
+    --theme-grand-total-value-dark: #ffffff;
+    --theme-toast-info-bg-dark: linear-gradient(180deg, rgba(13, 47, 60, 0.96), rgba(9, 30, 40, 0.98));
+    --theme-primary-shadow-button-dark: 0 10px 24px rgba(34, 211, 238, 0.22);
+    --theme-primary-shadow-strong-dark: 0 14px 28px rgba(34, 211, 238, 0.22);
+    --theme-primary-shadow-tab-dark: 0 0 0 1px rgba(7, 22, 31, 0.28), 0 10px 22px rgba(34, 211, 238, 0.24);
+    --theme-primary-shadow-panel-dark: 0 12px 28px rgba(34, 211, 238, 0.14);
+    --theme-primary-shadow-glow-dark: 0 0 18px rgba(34, 211, 238, 0.8);
+    --theme-app-shell-bg-light: linear-gradient(180deg, rgba(247, 252, 255, 0.98), rgba(234, 245, 250, 0.96));
+    --theme-app-shell-shadow-light: 0 20px 44px rgba(117, 150, 170, 0.18);
+    --theme-app-shell-glow-light: radial-gradient(circle at top left, rgba(21, 184, 211, 0.16), transparent 34%);
+    --theme-workspace-bg-light: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(243, 249, 252, 0.94));
+    --theme-workspace-shadow-light: 0 18px 42px rgba(116, 145, 164, 0.16);
+    --theme-surface-bg-light: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 251, 253, 0.95));
+    --theme-surface-shadow-light: 0 18px 38px rgba(118, 145, 165, 0.14);
+    --theme-panel-bg-light: #eef7fb;
+    --theme-panel-inner-bg-light: #ffffff;
+    --theme-panel-soft-bg-light: rgba(14, 116, 144, 0.05);
+    --theme-panel-hover-bg-light: rgba(14, 116, 144, 0.08);
+    --theme-text-strong-light: #173042;
+    --theme-text-soft-light: #355266;
+    --theme-text-muted-light: #5c7285;
+    --theme-dot-idle-light: #9fb6c4;
+    --theme-body-bg-image-light:
+      radial-gradient(circle at top left, rgba(21, 184, 211, 0.14) 0px, transparent 28%),
+      radial-gradient(circle at top right, rgba(125, 211, 252, 0.14) 0px, transparent 26%),
+      linear-gradient(180deg, rgba(244, 250, 253, 1) 0%, rgba(234, 245, 250, 1) 100%);
+    --theme-grand-total-bg-light: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(237, 246, 250, 0.98));
+    --theme-grand-total-value-light: #0f2940;
+    --theme-toast-info-bg-light: linear-gradient(180deg, rgba(236, 250, 255, 0.98), rgba(226, 244, 250, 0.98));
+    --theme-primary-shadow-button-light: 0 10px 24px rgba(14, 116, 144, 0.18);
+    --theme-primary-shadow-strong-light: 0 14px 28px rgba(14, 116, 144, 0.18);
+    --theme-primary-shadow-tab-light: 0 0 0 1px rgba(14, 116, 144, 0.12), 0 10px 22px rgba(14, 116, 144, 0.2);
+    --theme-primary-shadow-panel-light: 0 12px 28px rgba(14, 116, 144, 0.12);
+    --theme-primary-shadow-glow-light: 0 0 18px rgba(56, 189, 248, 0.5);
+    --background: var(--theme-background-dark);
+    --foreground: var(--theme-foreground-dark);
+    --card: var(--theme-card-dark);
+    --card-foreground: var(--theme-card-foreground-dark);
+    --popover: var(--theme-popover-dark);
+    --popover-foreground: var(--theme-popover-foreground-dark);
+    --primary: var(--theme-primary-dark);
+    --primary-foreground: var(--theme-primary-foreground-dark);
+    --secondary: var(--theme-secondary-dark);
+    --secondary-foreground: var(--theme-secondary-foreground-dark);
+    --muted: var(--theme-muted-dark);
+    --muted-foreground: var(--theme-muted-foreground-dark);
+    --accent: var(--theme-accent-dark);
+    --accent-foreground: var(--theme-accent-foreground-dark);
+    --border: var(--theme-border-dark);
+    --input: var(--theme-input-dark);
+    --ring: var(--theme-ring-dark);
+    --app-shell-bg: var(--theme-app-shell-bg-dark);
+    --app-shell-shadow: var(--theme-app-shell-shadow-dark);
+    --app-shell-glow: var(--theme-app-shell-glow-dark);
+    --workspace-bg: var(--theme-workspace-bg-dark);
+    --workspace-shadow: var(--theme-workspace-shadow-dark);
+    --surface-bg: var(--theme-surface-bg-dark);
+    --surface-shadow: var(--theme-surface-shadow-dark);
+    --panel-bg: var(--theme-panel-bg-dark);
+    --panel-inner-bg: var(--theme-panel-inner-bg-dark);
+    --panel-soft-bg: var(--theme-panel-soft-bg-dark);
+    --panel-hover-bg: var(--theme-panel-hover-bg-dark);
+    --text-strong: var(--theme-text-strong-dark);
+    --text-soft: var(--theme-text-soft-dark);
+    --text-muted: var(--theme-text-muted-dark);
+    --dot-idle: var(--theme-dot-idle-dark);
+    --body-bg-image: var(--theme-body-bg-image-dark);
+    --grand-total-bg: var(--theme-grand-total-bg-dark);
+    --grand-total-value: var(--theme-grand-total-value-dark);
+    --toast-info-bg: var(--theme-toast-info-bg-dark);
+    --primary-shadow-button: var(--theme-primary-shadow-button-dark);
+    --primary-shadow-strong: var(--theme-primary-shadow-strong-dark);
+    --primary-shadow-tab: var(--theme-primary-shadow-tab-dark);
+    --primary-shadow-panel: var(--theme-primary-shadow-panel-dark);
+    --primary-shadow-glow: var(--theme-primary-shadow-glow-dark);
   }
 
   html[data-theme='light'] {
     color-scheme: light;
-    --background: 195 43% 96%;
-    --foreground: 221 39% 17%;
-    --card: 0 0% 100%;
-    --card-foreground: 221 39% 17%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 221 39% 17%;
-    --primary: 190 86% 40%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 196 32% 92%;
-    --secondary-foreground: 221 39% 17%;
-    --muted: 194 24% 91%;
-    --muted-foreground: 215 21% 42%;
-    --accent: 194 33% 92%;
-    --accent-foreground: 221 39% 17%;
-    --border: 197 26% 82%;
-    --input: 0 0% 100%;
-    --ring: 190 86% 40%;
-    --app-shell-bg: linear-gradient(180deg, rgba(247, 252, 255, 0.98), rgba(234, 245, 250, 0.96));
-    --app-shell-shadow: 0 20px 44px rgba(117, 150, 170, 0.18);
-    --app-shell-glow: radial-gradient(circle at top left, rgba(21, 184, 211, 0.16), transparent 34%);
-    --workspace-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(243, 249, 252, 0.94));
-    --workspace-shadow: 0 18px 42px rgba(116, 145, 164, 0.16);
-    --surface-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 251, 253, 0.95));
-    --surface-shadow: 0 18px 38px rgba(118, 145, 165, 0.14);
-    --panel-bg: #eef7fb;
-    --panel-inner-bg: #ffffff;
-    --panel-soft-bg: rgba(14, 116, 144, 0.05);
-    --panel-hover-bg: rgba(14, 116, 144, 0.08);
-    --text-strong: #173042;
-    --text-soft: #355266;
-    --text-muted: #5c7285;
-    --dot-idle: #9fb6c4;
-    --body-bg-image:
-      radial-gradient(circle at top left, rgba(21, 184, 211, 0.14) 0px, transparent 28%),
-      radial-gradient(circle at top right, rgba(125, 211, 252, 0.14) 0px, transparent 26%),
-      linear-gradient(180deg, rgba(244, 250, 253, 1) 0%, rgba(234, 245, 250, 1) 100%);
-    --grand-total-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(237, 246, 250, 0.98));
-    --grand-total-value: #0f2940;
+    --background: var(--theme-background-light);
+    --foreground: var(--theme-foreground-light);
+    --card: var(--theme-card-light);
+    --card-foreground: var(--theme-card-foreground-light);
+    --popover: var(--theme-popover-light);
+    --popover-foreground: var(--theme-popover-foreground-light);
+    --primary: var(--theme-primary-light);
+    --primary-foreground: var(--theme-primary-foreground-light);
+    --secondary: var(--theme-secondary-light);
+    --secondary-foreground: var(--theme-secondary-foreground-light);
+    --muted: var(--theme-muted-light);
+    --muted-foreground: var(--theme-muted-foreground-light);
+    --accent: var(--theme-accent-light);
+    --accent-foreground: var(--theme-accent-foreground-light);
+    --border: var(--theme-border-light);
+    --input: var(--theme-input-light);
+    --ring: var(--theme-ring-light);
+    --app-shell-bg: var(--theme-app-shell-bg-light);
+    --app-shell-shadow: var(--theme-app-shell-shadow-light);
+    --app-shell-glow: var(--theme-app-shell-glow-light);
+    --workspace-bg: var(--theme-workspace-bg-light);
+    --workspace-shadow: var(--theme-workspace-shadow-light);
+    --surface-bg: var(--theme-surface-bg-light);
+    --surface-shadow: var(--theme-surface-shadow-light);
+    --panel-bg: var(--theme-panel-bg-light);
+    --panel-inner-bg: var(--theme-panel-inner-bg-light);
+    --panel-soft-bg: var(--theme-panel-soft-bg-light);
+    --panel-hover-bg: var(--theme-panel-hover-bg-light);
+    --text-strong: var(--theme-text-strong-light);
+    --text-soft: var(--theme-text-soft-light);
+    --text-muted: var(--theme-text-muted-light);
+    --dot-idle: var(--theme-dot-idle-light);
+    --body-bg-image: var(--theme-body-bg-image-light);
+    --grand-total-bg: var(--theme-grand-total-bg-light);
+    --grand-total-value: var(--theme-grand-total-value-light);
+    --toast-info-bg: var(--theme-toast-info-bg-light);
+    --primary-shadow-button: var(--theme-primary-shadow-button-light);
+    --primary-shadow-strong: var(--theme-primary-shadow-strong-light);
+    --primary-shadow-tab: var(--theme-primary-shadow-tab-light);
+    --primary-shadow-panel: var(--theme-primary-shadow-panel-light);
+    --primary-shadow-glow: var(--theme-primary-shadow-glow-light);
   }
 
   * {
@@ -152,7 +246,7 @@
   }
 
   ::selection {
-    background: hsla(190, 90%, 52%, 0.28);
+    background: hsl(var(--primary) / 0.28);
   }
 }
 
@@ -220,7 +314,7 @@
   }
 
   .toast-info {
-    background: linear-gradient(180deg, rgba(13, 47, 60, 0.96), rgba(9, 30, 40, 0.98));
+    background: var(--toast-info-bg);
   }
 
   .toast-success {
@@ -248,7 +342,7 @@
   }
 
   .toast-accent {
-    background: rgba(255, 255, 255, 0.18);
+    background: hsl(var(--primary) / 0.18);
   }
 
   .toast-title {
@@ -283,8 +377,8 @@
   }
 
   .status-info {
-    background: rgba(14, 165, 233, 0.12);
-    color: var(--primary);
+    background: hsl(var(--primary) / 0.12);
+    color: hsl(var(--primary));
   }
 
   .status-warning {
@@ -293,12 +387,32 @@
   }
 
   .status-sky {
-    background: rgba(56, 189, 248, 0.12);
-    color: #bae6fd;
+    background: hsl(var(--primary) / 0.14);
+    color: hsl(var(--primary));
   }
 }
 
 @layer utilities {
+  .shadow-theme-primary-button {
+    box-shadow: var(--primary-shadow-button);
+  }
+
+  .shadow-theme-primary-strong {
+    box-shadow: var(--primary-shadow-strong);
+  }
+
+  .shadow-theme-primary-tab {
+    box-shadow: var(--primary-shadow-tab);
+  }
+
+  .shadow-theme-primary-panel {
+    box-shadow: var(--primary-shadow-panel);
+  }
+
+  .shadow-theme-primary-glow {
+    box-shadow: var(--primary-shadow-glow);
+  }
+
   .text-theme-strong {
     color: var(--text-strong);
   }
@@ -365,7 +479,7 @@ html[data-theme='light'] .toast-warning {
 }
 
 html[data-theme='light'] .toast-info {
-  background: linear-gradient(180deg, rgba(236, 250, 255, 0.98), rgba(226, 244, 250, 0.98));
+  background: var(--toast-info-bg);
 }
 
 html[data-theme='light'] .toast-success {
@@ -393,7 +507,7 @@ html[data-theme='light'] .toast-badge-success {
 }
 
 html[data-theme='light'] .toast-accent {
-  background: rgba(15, 41, 64, 0.12);
+  background: hsl(var(--primary) / 0.12);
 }
 
 html[data-theme='light'] .toast-title,
@@ -418,8 +532,8 @@ html[data-theme='light'] .status-success {
 }
 
 html[data-theme='light'] .status-info {
-  background: rgba(14, 165, 233, 0.1);
-  color: #0f766e;
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
 }
 
 html[data-theme='light'] .status-warning {
@@ -428,8 +542,8 @@ html[data-theme='light'] .status-warning {
 }
 
 html[data-theme='light'] .status-sky {
-  background: rgba(56, 189, 248, 0.1);
-  color: #0369a1;
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
 }
 
 #root {
@@ -452,6 +566,6 @@ html[data-theme='light'] #root {
 ::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 999px;
-  background: rgba(45, 212, 191, 0.24);
+  background: hsl(var(--primary) / 0.24);
   background-clip: padding-box;
 }

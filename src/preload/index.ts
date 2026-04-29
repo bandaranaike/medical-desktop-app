@@ -195,11 +195,16 @@ type AppNotification = {
   message: string
 }
 
+type ThemeConfig = {
+  baseColor: string
+}
+
 const APP_NOTIFICATION_CHANNEL = 'app:notification'
 
 const api = {
   createUser: (user: { name: string; email: string }) => ipcRenderer.invoke('user:create', user),
   listUsers: () => ipcRenderer.invoke('user:list'),
+  getThemeConfig: (): Promise<ThemeConfig> => ipcRenderer.invoke('theme:config'),
   searchPatients: (query: string): Promise<PatientRecord[]> =>
     ipcRenderer.invoke('patients:search', query),
   listDoctors: (options?: DoctorListOptions): Promise<DoctorRecord[]> =>

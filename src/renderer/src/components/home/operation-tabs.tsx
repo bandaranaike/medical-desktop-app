@@ -25,7 +25,7 @@ export function OperationTabs({ value, onChange }: OperationTabsProps): React.JS
           className={cn(
             'rounded-md px-3 py-1 text-[11px] font-semibold transition-all',
             value === tab.value
-              ? 'bg-primary text-primary-foreground shadow-[0_0_0_1px_rgba(7,22,31,0.28),0_10px_22px_rgba(34,211,238,0.24)]'
+              ? 'bg-primary text-primary-foreground shadow-theme-primary-tab'
               : 'text-theme-muted panel-hover-shell hover:text-theme-strong'
           )}
         >

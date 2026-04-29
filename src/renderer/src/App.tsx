@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Modal } from '@/components/ui/modal'
 import { ToastRegion, type ToastItem, type ToastTone } from '@/components/ui/toast-region'
+import { applyThemeVariables, type ThemeConfig } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 
 type Shift = 'Morning' | 'Evening'
@@ -88,6 +89,8 @@ interface AppNotification {
   title: string
   message: string
 }
+
+interface RendererThemeConfig extends ThemeConfig {}
 
 interface DaySummaryItem {
   service_name: string
@@ -175,6 +178,7 @@ interface FormPreferences {
 }
 
 type RendererApi = {
+  getThemeConfig: () => Promise<RendererThemeConfig>
   searchPatients: (query: string) => Promise<PatientRecord[]>
   listDoctors: (options?: DoctorListOptions) => Promise<DoctorOption[]>
   searchBillingServices: (
@@ -997,6 +1001,27 @@ function App(): React.JSX.Element {
       cancelled = true
     }
   }, [api, billDate, bookingQueueRefreshKey, workspaceTab])
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+
+    let cancelled = false
+
+    void api
+      .getThemeConfig()
+      .then((config) => {
+        if (cancelled) return
+        applyThemeVariables(document.documentElement, config.baseColor)
+      })
+      .catch(() => {
+        if (cancelled) return
+        applyThemeVariables(document.documentElement, '#522e90')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [api])
 
   useEffect(() => {
     if (typeof document === 'undefined') return
@@ -1825,7 +1850,7 @@ function App(): React.JSX.Element {
                 type="button"
                 onClick={() => void handleProceedBooking(paymentPromptBooking, true)}
                 disabled={proceedingBookingId !== null}
-                className="h-9 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground shadow-[0_10px_20px_rgba(34,211,238,0.18)] hover:bg-primary/90"
+                className="h-9 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground shadow-theme-primary-button hover:bg-primary/90"
               >
                 {proceedingBookingId !== null ? 'Printing...' : 'Yes, Print Bill'}
               </Button>
@@ -1909,7 +1934,7 @@ function App(): React.JSX.Element {
                       className={cn(
                         'flex-1 rounded px-3 py-1 text-[11px] font-medium transition',
                         shift === option
-                          ? 'bg-primary text-primary-foreground shadow-[0_10px_22px_rgba(34,211,238,0.24)]'
+                          ? 'bg-primary text-primary-foreground shadow-theme-primary-tab'
                           : 'text-theme-muted panel-hover-shell'
                       )}
                     >
@@ -1935,12 +1960,12 @@ function App(): React.JSX.Element {
                 {
                   id: 'bookings',
                   title: 'Booking List',
-                  subtitle: 'Review bookings for the selected date and move them into payment.'
+                  subtitle: 'Review bookings and move them into payment.'
                 },
                 {
                   id: 'summary',
                   title: 'Summary Prints',
-                  subtitle: 'Print morning, evening, or full-day service summaries for the date.'
+                  subtitle: 'Print service summaries for the date.'
                 }
               ] as Array<{ id: WorkspaceTab; title: string; subtitle: string }>
             ).map((tab) => (
@@ -1951,7 +1976,7 @@ function App(): React.JSX.Element {
                 className={cn(
                   'rounded-lg border px-4 py-3 text-left transition',
                   workspaceTab === tab.id
-                    ? 'border-primary/35 bg-primary/10 shadow-[0_12px_28px_rgba(34,211,238,0.14)]'
+                    ? 'border-primary/35 bg-primary/10 shadow-theme-primary-panel'
                     : 'border-transparent panel-soft-shell hover:border-border/90 panel-hover-shell'
                 )}
               >
@@ -1967,7 +1992,7 @@ function App(): React.JSX.Element {
                     className={cn(
                       'h-2.5 w-2.5 rounded-full transition',
                       workspaceTab === tab.id
-                        ? 'bg-primary shadow-[0_0_18px_rgba(34,211,238,0.8)]'
+                        ? 'bg-primary shadow-theme-primary-glow'
                         : 'bg-theme-idle'
                     )}
                   />
@@ -2587,7 +2612,7 @@ function App(): React.JSX.Element {
                     </div>
                   ) : null}
                   {isBooking && editingBooking ? (
-                    <div className="status-message status-sky rounded-lg border border-sky-400/20 px-3 py-2 text-xs">
+                    <div className="status-message status-sky rounded-lg border border-primary/20 px-3 py-2 text-xs">
                       Editing booking
                       {editingBooking.reference ? ` - ${editingBooking.reference}` : ''}
                     </div>
@@ -2610,7 +2635,7 @@ function App(): React.JSX.Element {
                             doctors.length === 0 ||
                             currentDoctorOptions.length === 0
                           }
-                          className="h-10 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-[0_14px_28px_rgba(34,211,238,0.22)] hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
+                          className="h-10 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-theme-primary-strong hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
                         >
                           {submitState.status === 'loading'
                             ? editingBooking
@@ -2644,7 +2669,7 @@ function App(): React.JSX.Element {
                           doctors.length === 0 ||
                           currentDoctorOptions.length === 0
                         }
-                        className="h-10 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-[0_14px_28px_rgba(34,211,238,0.22)] hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
+                        className="h-10 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-theme-primary-strong hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
                       >
                         {submitState.status === 'loading'
                           ? 'Saving And Creating Bill...'
@@ -2765,7 +2790,7 @@ function App(): React.JSX.Element {
                                 type="button"
                                 onClick={() => setPaymentPromptBooking(booking)}
                                 disabled={proceedingBookingId !== null}
-                                className="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-[0_10px_20px_rgba(34,211,238,0.18)] hover:bg-primary/90"
+                                className="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-theme-primary-button hover:bg-primary/90"
                               >
                                 {proceedingBookingId === booking.id
                                   ? 'Processing...'
@@ -2797,7 +2822,7 @@ function App(): React.JSX.Element {
                     type="button"
                     onClick={() => void handlePrintShiftSummary('morning')}
                     disabled={summaryPrintState.status === 'loading'}
-                    className="h-12 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-[0_14px_28px_rgba(34,211,238,0.22)] hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
+                    className="h-12 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-theme-primary-strong hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
                   >
                     {summaryPrintState.status === 'loading' &&
                     summaryPrintState.action === 'morning'

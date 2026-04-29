@@ -194,12 +194,17 @@ type AppNotification = {
   message: string
 }
 
+type ThemeConfig = {
+  baseColor: string
+}
+
 declare global {
   interface Window {
     electron: ElectronAPI
     api: {
       createUser(user: { name: string; email: string }): Promise<unknown>
       listUsers(): Promise<Array<{ id: number; [key: string]: unknown }>>
+      getThemeConfig(): Promise<ThemeConfig>
       searchPatients(query: string): Promise<PatientRecord[]>
       listDoctors(options?: DoctorListOptions): Promise<DoctorRecord[]>
       searchBillingServices(
