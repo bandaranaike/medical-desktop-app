@@ -503,7 +503,9 @@ async function ensurePrinterServiceRunning(): Promise<void> {
     if (exitedDuringStartup) {
       reportAppError(
         'Printer service exited',
-        new Error(`Printer service exited with code ${code ?? 'null'} and signal ${signal ?? 'null'}`),
+        new Error(
+          `Printer service exited with code ${code ?? 'null'} and signal ${signal ?? 'null'}`
+        ),
         {
           title: 'Printer service stopped'
         }
@@ -747,11 +749,7 @@ async function searchBillingServices(
   }
 
   const serviceType =
-    operation === 'channeling'
-      ? 'specialist'
-      : operation === 'others'
-        ? 'treatment'
-        : operation
+    operation === 'channeling' ? 'specialist' : operation === 'others' ? 'treatment' : operation
 
   const attempts = [
     `/api/public/services/search?query=${encodeURIComponent(normalizedQuery)}${serviceType ? `&type=${encodeURIComponent(serviceType)}` : ''}`,
@@ -1035,7 +1033,7 @@ async function listBookings(date: string): Promise<BookingQueueItem[]> {
   const normalizedDate = date.trim()
   const attempts = [
     `/api/public/bookings?date=${encodeURIComponent(normalizedDate)}`,
-    `/api/public/bills/bookings/${bookingTimeScopeForDate(normalizedDate)}?date=${encodeURIComponent(normalizedDate)}`
+    `/api/bills/bookings/${bookingTimeScopeForDate(normalizedDate)}?date=${encodeURIComponent(normalizedDate)}`
   ]
 
   for (const path of attempts) {
@@ -1129,21 +1127,18 @@ async function proceedBookingToPayment(
 }
 
 async function createBooking(payload: BookingSubmission): Promise<BookingRecord> {
-  const response = await apiRequest<Record<string, unknown>>(
-    '/api/public/bookings/make-appointment',
-    {
-      method: 'POST',
-      body: JSON.stringify({
-        name: normalizeWhitespace(payload.patient.name),
-        phone: normalizeWhitespace(payload.patient.telephone),
-        email: normalizeWhitespace(payload.patient.email) || undefined,
-        age: Number(payload.patient.age),
-        doctor_id: payload.doctorId,
-        doctor_type: payload.doctorType,
-        date: payload.date
-      })
-    }
-  )
+  const response = await apiRequest<Record<string, unknown>>('/api/bookings/make-appointment', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: normalizeWhitespace(payload.patient.name),
+      phone: normalizeWhitespace(payload.patient.telephone),
+      email: normalizeWhitespace(payload.patient.email) || undefined,
+      age: Number(payload.patient.age),
+      doctor_id: payload.doctorId,
+      doctor_type: payload.doctorType,
+      date: payload.date
+    })
+  })
 
   return normalizeBooking(response)
 }
@@ -1234,7 +1229,7 @@ async function fetchDaySummaryReport(date: string, shift: SummaryShift): Promise
     `/api/public/reports/day-summary?date=${encodeURIComponent(normalizedDate)}&shift=${encodeURIComponent(shift)}`
   )
 
-  console.log("Payload day summary", payload)
+  console.log('Payload day summary', payload)
 
   return normalizeDaySummaryReport(payload, normalizedDate)
 }

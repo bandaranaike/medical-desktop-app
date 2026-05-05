@@ -25,6 +25,7 @@ This is the current structured task index for `.ai/tasks/`.
 | TASK-116 | done | Backend API Contract For Billing Services | `.ai/tasks/done/backend-api-contract-for-billing-services.md` | API change document created on 2026-04-01 |
 | TASK-117 | done | Light Theme Toggle | `.ai/tasks/done/light-theme-toggle.md` | light theme and header toggle implemented on 2026-04-01 |
 | TASK-118 | done | Runtime Theme Accent Color | `.ai/tasks/done/runtime-theme-accent-color.md` | `.env`-driven accent palette for dark and light themes implemented and typechecked on 2026-04-28 |
+| TASK-119 | active | Booking Submit CSRF Mismatch | `.ai/tasks/active/booking-submit-csrf-mismatch.md` | tracing frontend booking route mismatch against documented API on 2026-05-05 |
 
 ## Notes
 
