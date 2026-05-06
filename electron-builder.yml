@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: 5th-electron-app
+appId: com.erbitron.medicalcenterapp
+productName: erbitron-medical-center-app
 directories:
   buildResources: build
 files:
@@ -14,7 +14,7 @@ asarUnpack:
   - resources/**
   - node_modules/better-sqlite3/**
 win:
-  executableName: 5th-electron-app
+  executableName: erbitron-medical-center-app
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}

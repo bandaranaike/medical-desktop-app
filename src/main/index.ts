@@ -17,7 +17,7 @@ import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
 
 const RUNTIME_CONFIG_FILE_NAME = 'config.env'
 const DEFAULT_RUNTIME_CONFIG = [
-  '# Runtime configuration for 5th-electron-app',
+  '# Runtime configuration for erbitron-medical-center-app',
   '# Development uses the project .env file.',
   '# Packaged builds on Windows create/read this file from the app userData folder.',
   'API_BASE_URL=http://test-b.local',
@@ -1367,7 +1367,7 @@ process.on('uncaughtException', (error) => {
 
 handlePromiseError(
   app.whenReady().then(() => {
-    electronApp.setAppUserModelId('com.electron')
+    electronApp.setAppUserModelId('com.erbitron.medicalcenterapp')
 
     app.on('browser-window-created', (_, window) => {
       optimizer.watchWindowShortcuts(window)
