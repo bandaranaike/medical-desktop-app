@@ -26,6 +26,7 @@ This is the current structured task index for `.ai/tasks/`.
 | TASK-117 | done | Light Theme Toggle | `.ai/tasks/done/light-theme-toggle.md` | light theme and header toggle implemented on 2026-04-01 |
 | TASK-118 | done | Runtime Theme Accent Color | `.ai/tasks/done/runtime-theme-accent-color.md` | `.env`-driven accent palette for dark and light themes implemented and typechecked on 2026-04-28 |
 | TASK-119 | active | Booking Submit CSRF Mismatch | `.ai/tasks/active/booking-submit-csrf-mismatch.md` | tracing frontend booking route mismatch against documented API on 2026-05-05 |
+| TASK-120 | done | Direct Printer Routing | `.ai/tasks/done/direct-printer-routing.md` | aligned bill and summary printing with EPSON-LQ-310 and external printer service on 2026-08-03 |
 
 ## Notes
 

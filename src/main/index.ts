@@ -28,7 +28,7 @@ const DEFAULT_RUNTIME_CONFIG = [
   '# Optional override. When set, PRINTER_PORT is still applied to this host.',
   'PRINTER_BASE_URL=http://127.0.0.1',
   'PRINTER_PORT=5000',
-  'PRINTER_FOLDER=',
+  'PRINTER_FOLDER=C:/test/test-p',
   ''
 ].join('\n')
 
