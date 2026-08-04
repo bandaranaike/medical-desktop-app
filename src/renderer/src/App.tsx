@@ -105,9 +105,36 @@ interface DaySummaryReport {
 }
 
 interface SummaryPrintResult {
-  shift: SummaryShift
+  shift: SummaryShift | 'day'
   report: DaySummaryReport
   print: Record<string, unknown>
+}
+
+interface DailyBillRecord {
+  id: number
+  reference: string
+  date: string
+  shift: 'morning' | 'evening'
+  status: string
+  paymentType: 'cash' | 'card' | 'online'
+  paymentStatus: string
+  appointmentType: string
+  serviceType: string
+  billAmount: number
+  systemAmount: number
+  deletedAt: string | null
+  patient: {
+    id: number | null
+    name: string
+    telephone: string
+    registrationNo: string
+  }
+  doctor: {
+    id: number | null
+    name: string
+    specialty: string
+  }
+  items: BillLineItem[]
 }
 
 interface BookingRecord {
@@ -222,6 +249,8 @@ type RendererApi = {
     items: BillLineItem[]
   }) => Promise<BookingRecord>
   deleteBooking: (id: number) => Promise<{ message: string; deletedId: number }>
+  listDailyBills: (date: string) => Promise<DailyBillRecord[]>
+  deleteDailyBill: (id: number) => Promise<{ message: string; deletedId: number }>
   proceedBookingToPayment: (payload: {
     id: number
     paymentType: 'cash' | 'card' | 'online'
@@ -243,7 +272,7 @@ type RendererApi = {
     date: string
     shift: SummaryShift
   }) => Promise<SummaryPrintResult>
-  printDaySummary: (date: string) => Promise<SummaryPrintResult[]>
+  printDaySummary: (date: string) => Promise<SummaryPrintResult>
   onAppNotification: (callback: (notification: AppNotification) => void) => () => void
 }
 
@@ -279,6 +308,12 @@ const makeRow = (
 
 const money = (value: number): string =>
   `LKR ${new Intl.NumberFormat('en-LK', { maximumFractionDigits: 0 }).format(value)}`
+
+const todayIsoDate = (): string => {
+  const today = new Date()
+  const localTime = new Date(today.getTime() - today.getTimezoneOffset() * 60_000)
+  return localTime.toISOString().slice(0, 10)
+}
 
 const num = (value: string): number => {
   const parsed = Number(value)
@@ -671,7 +706,7 @@ function App(): React.JSX.Element {
   const [activeOperation, setActiveOperation] = useState<OperationType>('opd')
   const [isBooking, setIsBooking] = useState(false)
   const [shift, setShift] = useState<Shift>('Morning')
-  const [billDate, setBillDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [billDate, setBillDate] = useState(todayIsoDate)
   const [patient, setPatient] = useState<PatientInfo>({
     id: null,
     name: '',
@@ -719,6 +754,12 @@ function App(): React.JSX.Element {
     action: null,
     message: ''
   })
+  const [dailyBills, setDailyBills] = useState<DailyBillRecord[]>([])
+  const [dailyBillsLoading, setDailyBillsLoading] = useState(false)
+  const [dailyBillsError, setDailyBillsError] = useState('')
+  const [dailyBillsRefreshKey, setDailyBillsRefreshKey] = useState(0)
+  const [deletingDailyBillId, setDeletingDailyBillId] = useState<number | null>(null)
+  const [printingDailyBillId, setPrintingDailyBillId] = useState<number | null>(null)
   const [proceedingBookingId, setProceedingBookingId] = useState<number | null>(null)
   const [paymentPromptBooking, setPaymentPromptBooking] = useState<BookingQueueItem | null>(null)
   const [toasts, setToasts] = useState<ToastItem[]>([])
@@ -835,6 +876,8 @@ function App(): React.JSX.Element {
     setActiveOperation(operation)
   }
   const handleBillDateChange = (value: string): void => {
+    if (!isBooking || workspaceTab === 'summary') return
+
     setDoctorLoading(true)
     if (workspaceTab === 'bookings') {
       setBookingQueueLoading(true)
@@ -848,11 +891,19 @@ function App(): React.JSX.Element {
     if (tab === 'bookings') {
       setBookingQueueLoading(true)
     }
+    if (tab === 'summary') {
+      setBillDate(todayIsoDate())
+      setDailyBillsLoading(true)
+    }
     setWorkspaceTab(tab)
   }
   const refreshBookingQueue = (): void => {
     setBookingQueueLoading(true)
     setBookingQueueRefreshKey((current) => current + 1)
+  }
+  const refreshDailyBills = (): void => {
+    setDailyBillsLoading(true)
+    setDailyBillsRefreshKey((current) => current + 1)
   }
   const {
     opd: opdFieldDefaults,
@@ -1001,6 +1052,42 @@ function App(): React.JSX.Element {
       cancelled = true
     }
   }, [api, billDate, bookingQueueRefreshKey, workspaceTab])
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (workspaceTab !== 'summary') {
+      return () => {
+        cancelled = true
+      }
+    }
+
+    const today = todayIsoDate()
+    void api
+      .listDailyBills(today)
+      .then((records) => {
+        if (cancelled) return
+        setDailyBills(records)
+        setDailyBillsError('')
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        const message = error instanceof Error ? error.message : "Failed to load today's bills"
+        setDailyBills([])
+        setDailyBillsError(message)
+        setToasts((current) => [
+          ...current.slice(-3),
+          makeToast('error', 'Daily bill list unavailable', message)
+        ])
+      })
+      .finally(() => {
+        if (!cancelled) setDailyBillsLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [api, dailyBillsRefreshKey, workspaceTab])
 
   useEffect(() => {
     if (typeof document === 'undefined') return
@@ -1756,40 +1843,83 @@ function App(): React.JSX.Element {
     }
   }
 
-  const handlePrintShiftSummary = async (shiftToPrint: SummaryShift): Promise<void> => {
+  const handlePrintShiftSummary = async (summaryShift: SummaryShift): Promise<void> => {
+    const today = todayIsoDate()
+    const shiftLabel = summaryShiftLabel(summaryShift)
     setSummaryPrintState({
       status: 'loading',
-      action: shiftToPrint,
-      message: `Printing ${summaryShiftLabel(shiftToPrint).toLowerCase()} report...`
+      action: summaryShift,
+      message: `Printing ${shiftLabel.toLowerCase()} shift summary...`
     })
 
     try {
-      const result = await api.printSummaryReport({
-        date: billDate,
-        shift: shiftToPrint
-      })
+      const result = await api.printSummaryReport({ date: today, shift: summaryShift })
       const hasItems = result.report.items.length > 0
       const message = hasItems
-        ? `${summaryShiftLabel(shiftToPrint)} report printed for ${billDate}.`
-        : `${summaryShiftLabel(shiftToPrint)} report printed for ${billDate} with no sales for that shift.`
+        ? `${shiftLabel} shift summary printed for ${today}.`
+        : `${shiftLabel} shift summary printed for ${today} with no active sales.`
 
       setSummaryPrintState({
         status: 'success',
-        action: shiftToPrint,
+        action: summaryShift,
         message
       })
-      pushToast('success', `${summaryShiftLabel(shiftToPrint)} report printed`, message)
+      pushToast('success', `${shiftLabel} summary printed`, message)
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : `Failed to print ${shiftToPrint} report`
+        error instanceof Error ? error.message : `Failed to print ${shiftLabel.toLowerCase()} summary`
       setSummaryPrintState({
         status: 'error',
-        action: shiftToPrint,
+        action: summaryShift,
         message
       })
-      pushToast('error', `${summaryShiftLabel(shiftToPrint)} report failed`, message)
+      pushToast('error', `${shiftLabel} summary print failed`, message)
     }
   }
+
+  const handlePrintDailyBill = async (bill: DailyBillRecord): Promise<void> => {
+    setPrintingDailyBillId(bill.id)
+
+    try {
+      await api.printReceipt({
+        billId: bill.id,
+        billReference: bill.reference,
+        patientName: bill.patient.name,
+        doctorName: bill.doctor.name,
+        paymentType: bill.paymentType,
+        items: bill.items,
+        total: bill.billAmount
+      })
+      pushToast('success', 'Bill printed', `Printed ${bill.reference || `bill #${bill.id}`}.`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to print bill'
+      pushToast('error', 'Bill print failed', message)
+    } finally {
+      setPrintingDailyBillId(null)
+    }
+  }
+
+  const handleDeleteDailyBill = async (bill: DailyBillRecord): Promise<void> => {
+    const label = bill.reference || `bill #${bill.id}`
+    if (!window.confirm(`Delete ${label}? It will be excluded from today's summary.`)) return
+
+    setDeletingDailyBillId(bill.id)
+
+    try {
+      const result = await api.deleteDailyBill(bill.id)
+      pushToast('success', 'Bill deleted', result.message)
+      refreshDailyBills()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete bill'
+      pushToast('error', 'Bill delete failed', message)
+    } finally {
+      setDeletingDailyBillId(null)
+    }
+  }
+
+  const activeDailyBills = dailyBills.filter((bill) => bill.deletedAt === null)
+  const deletedDailyBills = dailyBills.filter((bill) => bill.deletedAt !== null)
+  const activeDayTotal = activeDailyBills.reduce((total, bill) => total + bill.billAmount, 0)
 
   return (
     <main
@@ -1900,6 +2030,8 @@ function App(): React.JSX.Element {
                     const nextChecked = event.target.checked
                     setIsBooking(nextChecked)
                     if (!nextChecked) {
+                      setDoctorLoading(true)
+                      setBillDate(todayIsoDate())
                       setEditingBooking(null)
                       setSavedBooking(null)
                     }
@@ -1923,6 +2055,9 @@ function App(): React.JSX.Element {
                   type="date"
                   value={billDate}
                   onChange={(event) => handleBillDateChange(event.target.value)}
+                  min={!isBooking || workspaceTab === 'summary' ? todayIsoDate() : undefined}
+                  max={!isBooking || workspaceTab === 'summary' ? todayIsoDate() : undefined}
+                  disabled={!isBooking || workspaceTab === 'summary'}
                   className={cn(
                     inputClassName,
                     'h-7 border-0 bg-transparent px-0 py-0 focus-visible:ring-0'
@@ -2814,106 +2949,225 @@ function App(): React.JSX.Element {
             </div>
           </SurfaceCard>
         ) : (
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-            <SurfaceCard eyebrow="Reports" title="Summary prints" className="overflow-hidden">
+          <div className="space-y-4">
+            <SurfaceCard eyebrow="Today" title="Printable bills" className="overflow-hidden">
               <div className="space-y-4">
-                <div className="rounded-lg border border-border/90 bg-[#111923] p-4">
-                  <p className="text-sm font-semibold text-white">
-                    Print service totals for {billDate}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-400">
-                    Use the selected date above to print the morning or evening report.
-                  </p>
+                <div className="flex flex-col gap-3 rounded-lg border border-border/90 bg-[#111923] p-4 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-white">Bills for {todayIsoDate()}</p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      Morning and evening bills are shown together. Delete incorrect bills before
+                      printing the relevant shift summary.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={refreshDailyBills}
+                      disabled={dailyBillsLoading}
+                      className={softButtonClassName}
+                    >
+                      {dailyBillsLoading ? 'Refreshing...' : 'Refresh List'}
+                    </Button>
+                    {(['morning', 'evening'] as SummaryShift[]).map((summaryShift) => {
+                      const shiftLabel = summaryShiftLabel(summaryShift)
+                      const isPrintingShift =
+                        summaryPrintState.status === 'loading' &&
+                        summaryPrintState.action === summaryShift
+                      const hasShiftBills = activeDailyBills.some(
+                        (bill) => bill.shift === summaryShift
+                      )
+
+                      return (
+                        <Button
+                          key={summaryShift}
+                          type="button"
+                          onClick={() => void handlePrintShiftSummary(summaryShift)}
+                          disabled={
+                            summaryPrintState.status === 'loading' ||
+                            dailyBillsLoading ||
+                            !hasShiftBills
+                          }
+                          className="h-9 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground shadow-theme-primary-button hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isPrintingShift
+                            ? `Printing ${shiftLabel}...`
+                            : `Print ${shiftLabel} Summary`}
+                        </Button>
+                      )
+                    })}
+                  </div>
                 </div>
 
-                <div className="grid gap-3 lg:grid-cols-2">
-                  <Button
-                    type="button"
-                    onClick={() => void handlePrintShiftSummary('morning')}
-                    disabled={summaryPrintState.status === 'loading'}
-                    className="h-12 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-theme-primary-strong hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
-                  >
-                    {summaryPrintState.status === 'loading' &&
-                    summaryPrintState.action === 'morning'
-                      ? 'Printing Morning Report...'
-                      : 'Print Morning Report'}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => void handlePrintShiftSummary('evening')}
-                    disabled={summaryPrintState.status === 'loading'}
-                    className="h-12 rounded-md border-border/90 bg-white/4 text-xs font-semibold text-slate-100 hover:bg-white/8 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {summaryPrintState.status === 'loading' &&
-                    summaryPrintState.action === 'evening'
-                      ? 'Printing Evening Report...'
-                      : 'Print Evening Report'}
-                  </Button>
+                {dailyBillsError ? (
+                  <div className="rounded-lg border border-rose-400/25 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
+                    {dailyBillsError}
+                  </div>
+                ) : null}
+
+                <div className="overflow-hidden rounded-lg border border-border/90">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-left text-xs">
+                      <thead className="bg-white/4 text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                        <tr>
+                          <th className="px-3 py-2.5">Reference</th>
+                          <th className="px-3 py-2.5">Patient</th>
+                          <th className="px-3 py-2.5">Doctor / Service</th>
+                          <th className="px-3 py-2.5">Shift</th>
+                          <th className="px-3 py-2.5 text-right">Total</th>
+                          <th className="px-3 py-2.5 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/70 bg-[#101720]">
+                        {dailyBillsLoading ? (
+                          <tr>
+                            <td colSpan={6} className="px-3 py-8 text-center text-slate-400">
+                              Loading today's bills...
+                            </td>
+                          </tr>
+                        ) : activeDailyBills.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="px-3 py-8 text-center text-slate-400">
+                              No active bills for today.
+                            </td>
+                          </tr>
+                        ) : (
+                          activeDailyBills.map((bill) => (
+                            <tr key={bill.id} className="text-slate-300">
+                              <td className="px-3 py-3 font-medium text-white">
+                                {bill.reference || `#${bill.id}`}
+                              </td>
+                              <td className="px-3 py-3">
+                                <p className="font-medium text-slate-100">
+                                  {bill.patient.name || 'Walk-in'}
+                                </p>
+                                <p className="mt-0.5 text-[11px] text-slate-500">
+                                  {bill.patient.telephone || 'No telephone'}
+                                </p>
+                              </td>
+                              <td className="px-3 py-3">
+                                <p>
+                                  {bill.doctor.name || bill.appointmentType || 'General service'}
+                                </p>
+                                <p className="mt-0.5 text-[11px] text-slate-500">
+                                  {bill.appointmentType || bill.serviceType}
+                                </p>
+                              </td>
+                              <td className="px-3 py-3">
+                                <span className="rounded-full border border-primary/25 bg-primary/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-primary">
+                                  {summaryShiftLabel(bill.shift)}
+                                </span>
+                              </td>
+                              <td className="px-3 py-3 text-right font-semibold text-white">
+                                {money(bill.billAmount)}
+                              </td>
+                              <td className="px-3 py-3">
+                                <div className="flex justify-end gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => void handlePrintDailyBill(bill)}
+                                    disabled={
+                                      bill.items.length === 0 ||
+                                      printingDailyBillId !== null ||
+                                      deletingDailyBillId !== null
+                                    }
+                                    className={softButtonClassName}
+                                  >
+                                    {bill.items.length === 0
+                                      ? 'No Items'
+                                      : printingDailyBillId === bill.id
+                                        ? 'Printing...'
+                                        : 'Print Bill'}
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => void handleDeleteDailyBill(bill)}
+                                    disabled={
+                                      deletingDailyBillId !== null || printingDailyBillId !== null
+                                    }
+                                    className={cn(
+                                      softButtonClassName,
+                                      'hover:border-rose-400/35 hover:bg-rose-500/10 hover:text-rose-100'
+                                    )}
+                                  >
+                                    {deletingDailyBillId === bill.id ? 'Deleting...' : 'Delete'}
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
+
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-lg border border-border/90 bg-white/2 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Active bills
+                    </p>
+                    <p className="mt-1 text-lg font-semibold text-white">
+                      {activeDailyBills.length}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border/90 bg-white/2 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Summary total
+                    </p>
+                    <p className="mt-1 text-lg font-semibold text-white">{money(activeDayTotal)}</p>
+                  </div>
+                  <div className="rounded-lg border border-border/90 bg-white/2 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Deleted / ignored
+                    </p>
+                    <p className="mt-1 text-lg font-semibold text-slate-300">
+                      {deletedDailyBills.length}
+                    </p>
+                  </div>
+                </div>
+
+                {summaryPrintState.status !== 'idle' ? (
+                  <div
+                    className={cn(
+                      'rounded-lg px-3 py-2 text-xs',
+                      summaryPrintState.status === 'success'
+                        ? 'border border-emerald-400/25 bg-emerald-500/10 text-emerald-100'
+                        : summaryPrintState.status === 'error'
+                          ? 'border border-rose-400/25 bg-rose-500/10 text-rose-100'
+                          : 'border border-primary/20 bg-primary/10 text-primary'
+                    )}
+                  >
+                    {summaryPrintState.message}
+                  </div>
+                ) : null}
               </div>
             </SurfaceCard>
 
-            <aside className="space-y-4">
-              <SurfaceCard eyebrow="Status" title="Print queue" className="p-3">
-                <div className="space-y-3">
-                  <div className="grid gap-2 rounded-lg border border-border/90 bg-[#111923] p-3">
-                    <div className="flex items-center justify-between text-[13px]">
-                      <span className="text-slate-400 font-medium">Selected date</span>
-                      <span className="text-slate-100">{billDate}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-[13px]">
-                      <span className="text-slate-400 font-medium">Printer flow</span>
-                      <span className="text-slate-100">Billing Desk printer</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2 rounded-lg border border-border/90 bg-white/2 p-3">
-                    {(
-                      [
-                        {
-                          label: 'Morning report',
-                          value: 'Print the selected date using the morning shift summary.'
-                        },
-                        {
-                          label: 'Evening report',
-                          value: 'Print the selected date using the evening shift summary.'
-                        }
-                      ] as Array<{ label: string; value: string }>
-                    ).map((item) => (
-                      <div
-                        key={item.label}
-                        className="rounded-lg border border-border/80 bg-[#111923] px-3 py-2"
-                      >
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
-                          {item.label}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-400">{item.value}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  {summaryPrintState.status !== 'idle' ? (
+            {deletedDailyBills.length > 0 ? (
+              <SurfaceCard eyebrow="Ignored" title="Deleted bills" className="overflow-hidden">
+                <div className="space-y-2">
+                  <p className="text-xs text-slate-400">
+                    These soft-deleted bills remain visible for audit purposes and are not included
+                    in the day summary.
+                  </p>
+                  {deletedDailyBills.map((bill) => (
                     <div
-                      className={cn(
-                        'rounded-lg px-3 py-2 text-xs',
-                        summaryPrintState.status === 'success'
-                          ? 'border border-emerald-400/25 bg-emerald-500/10 text-emerald-100'
-                          : summaryPrintState.status === 'error'
-                            ? 'border border-rose-400/25 bg-rose-500/10 text-rose-100'
-                            : 'border border-primary/20 bg-primary/10 text-primary'
-                      )}
+                      key={bill.id}
+                      className="grid gap-2 rounded-lg border border-rose-400/15 bg-rose-500/5 px-3 py-2 text-xs text-slate-500 md:grid-cols-[1fr_1fr_120px_140px] md:items-center"
                     >
-                      {summaryPrintState.message}
+                      <span className="line-through">{bill.reference || `#${bill.id}`}</span>
+                      <span>{bill.patient.name || 'Walk-in'}</span>
+                      <span>{summaryShiftLabel(bill.shift)}</span>
+                      <span className="text-right">{money(bill.billAmount)}</span>
                     </div>
-                  ) : (
-                    <div className="rounded-lg border border-border/90 bg-white/2 px-3 py-2 text-xs text-slate-400">
-                      Choose a summary action to send the selected date to the printer.
-                    </div>
-                  )}
+                  ))}
                 </div>
               </SurfaceCard>
-            </aside>
+            ) : null}
           </div>
         )}
       </div>

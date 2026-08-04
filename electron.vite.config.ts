@@ -10,7 +10,15 @@ export default defineConfig({
       }
     }
   },
-  preload: {},
+  preload: {
+    build: {
+      // Sandboxed preload scripts can only require Electron's limited built-ins.
+      // Bundle the toolkit bridge instead of leaving an npm require in out/preload/index.js.
+      externalizeDeps: {
+        exclude: ['@electron-toolkit/preload']
+      }
+    }
+  },
   renderer: {
     resolve: {
       alias: {

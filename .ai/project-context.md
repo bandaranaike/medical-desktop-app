@@ -53,6 +53,9 @@
 - Bill printing is routed through the Electron main/preload boundary to the local printer service.
 - The Booking List supports edit, delete, and proceed-to-payment actions for the selected date.
 - Proceed-to-payment now opens a popup asking whether to print, and the print-confirmed path reuses the same receipt printer flow used by `Generate And Print Bill` in the Billing Desk.
+- Non-booking bills are restricted to today's date; unchecking Booking resets the date to today.
+- Summary Prints shows one combined list of today's paid bills with Morning/Evening labels, per-bill reprint and soft-delete actions, and deleted bills in a separate audit section.
+- Summary printing provides separate Morning and Evening actions while keeping one combined bill list; soft-deleted bills are excluded from totals.
 
 ## Requirement alignment guidance
 

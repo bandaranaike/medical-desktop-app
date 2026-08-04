@@ -184,9 +184,27 @@ type DaySummaryReport = {
 }
 
 type SummaryPrintResult = {
-  shift: SummaryShift
+  shift: SummaryShift | 'day'
   report: DaySummaryReport
   print: Record<string, unknown>
+}
+
+type DailyBillRecord = {
+  id: number
+  reference: string
+  date: string
+  shift: 'morning' | 'evening'
+  status: string
+  paymentType: 'cash' | 'card' | 'online'
+  paymentStatus: string
+  appointmentType: string
+  serviceType: string
+  billAmount: number
+  systemAmount: number
+  deletedAt: string | null
+  patient: { id: number | null; name: string; telephone: string; registrationNo: string }
+  doctor: { id: number | null; name: string; specialty: string }
+  items: BillLineItem[]
 }
 
 type AppNotification = {
@@ -229,6 +247,10 @@ const api = {
     ipcRenderer.invoke('booking:update', payload),
   deleteBooking: (id: number): Promise<{ message: string; deletedId: number }> =>
     ipcRenderer.invoke('booking:delete', id),
+  listDailyBills: (date: string): Promise<DailyBillRecord[]> =>
+    ipcRenderer.invoke('daily-bills:list', date),
+  deleteDailyBill: (id: number): Promise<{ message: string; deletedId: number }> =>
+    ipcRenderer.invoke('daily-bills:delete', id),
   proceedBookingToPayment: (
     payload: BookingProceedPayload
   ): Promise<{ message: string; bill: Record<string, unknown> }> =>
@@ -239,7 +261,7 @@ const api = {
     date: string
     shift: SummaryShift
   }): Promise<SummaryPrintResult> => ipcRenderer.invoke('summary-report:print', payload),
-  printDaySummary: (date: string): Promise<SummaryPrintResult[]> =>
+  printDaySummary: (date: string): Promise<SummaryPrintResult> =>
     ipcRenderer.invoke('summary-report:print-day', date),
   onAppNotification: (callback: (notification: AppNotification) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, notification: AppNotification): void => {

@@ -183,9 +183,27 @@ type DaySummaryReport = {
 }
 
 type SummaryPrintResult = {
-  shift: SummaryShift
+  shift: SummaryShift | 'day'
   report: DaySummaryReport
   print: Record<string, unknown>
+}
+
+type DailyBillRecord = {
+  id: number
+  reference: string
+  date: string
+  shift: 'morning' | 'evening'
+  status: string
+  paymentType: 'cash' | 'card' | 'online'
+  paymentStatus: string
+  appointmentType: string
+  serviceType: string
+  billAmount: number
+  systemAmount: number
+  deletedAt: string | null
+  patient: { id: number | null; name: string; telephone: string; registrationNo: string }
+  doctor: { id: number | null; name: string; specialty: string }
+  items: BillLineItem[]
 }
 
 type AppNotification = {
@@ -220,6 +238,8 @@ declare global {
       listBookings(date: string): Promise<BookingQueueItem[]>
       updateBooking(payload: BookingUpdatePayload): Promise<BookingRecord>
       deleteBooking(id: number): Promise<{ message: string; deletedId: number }>
+      listDailyBills(date: string): Promise<DailyBillRecord[]>
+      deleteDailyBill(id: number): Promise<{ message: string; deletedId: number }>
       proceedBookingToPayment(payload: BookingProceedPayload): Promise<{
         message: string
         bill: Record<string, unknown>
@@ -229,7 +249,7 @@ declare global {
         date: string
         shift: SummaryShift
       }): Promise<SummaryPrintResult>
-      printDaySummary(date: string): Promise<SummaryPrintResult[]>
+      printDaySummary(date: string): Promise<SummaryPrintResult>
       onAppNotification(callback: (notification: AppNotification) => void): () => void
     }
   }

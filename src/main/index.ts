@@ -1,8 +1,9 @@
 import { config as loadEnv } from 'dotenv'
 import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
-import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { createConnection } from 'net'
+import { promisify } from 'util'
 
 // Disable Autofill in DevTools to avoid noise in the console
 app.commandLine.appendSwitch('disable-features', 'AutofillServerCommunication')
@@ -29,11 +30,17 @@ const DEFAULT_RUNTIME_CONFIG = [
   'PRINTER_BASE_URL=http://127.0.0.1',
   'PRINTER_PORT=5000',
   'PRINTER_FOLDER=C:/test/test-p',
+  '# Provision PRINT_AGENT_TOKEN as a per-machine User environment variable; never commit it.',
+  'PRINT_AGENT_TOKEN=',
   ''
 ].join('\n')
 
 let createdRuntimeConfigPath: string | null = null
 let printerServiceProcess: ChildProcessWithoutNullStreams | null = null
+let printerShutdownPromise: Promise<void> | null = null
+let isQuitting = false
+
+const execFileAsync = promisify(execFile)
 
 function getRuntimeConfigPath(): string {
   return join(app.getPath('userData'), RUNTIME_CONFIG_FILE_NAME)
@@ -164,9 +171,36 @@ type DaySummaryReport = {
 }
 
 type SummaryPrintResult = {
-  shift: SummaryShift
+  shift: SummaryShift | 'day'
   report: DaySummaryReport
   print: Record<string, unknown>
+}
+
+type DailyBillRecord = {
+  id: number
+  reference: string
+  date: string
+  shift: 'morning' | 'evening'
+  status: string
+  paymentType: 'cash' | 'card' | 'online'
+  paymentStatus: string
+  appointmentType: string
+  serviceType: string
+  billAmount: number
+  systemAmount: number
+  deletedAt: string | null
+  patient: {
+    id: number | null
+    name: string
+    telephone: string
+    registrationNo: string
+  }
+  doctor: {
+    id: number | null
+    name: string
+    specialty: string
+  }
+  items: BillLineItem[]
 }
 
 type BookingRecord = {
@@ -274,6 +308,7 @@ type PrinterConfig = {
   baseUrl: string
   folderPath: string
   port: number
+  token: string
 }
 
 const APP_NOTIFICATION_CHANNEL = 'app:notification'
@@ -394,16 +429,31 @@ function getPrinterConfig(): PrinterConfig {
   const baseUrlOverride = process.env['PRINTER_BASE_URL']?.trim()
   const port = parsePort(process.env['PRINTER_PORT'], 5000)
   const folderPath = process.env['PRINTER_FOLDER']?.trim() || getDefaultPrinterFolderPath()
+  const token = process.env['PRINT_AGENT_TOKEN']?.trim() || ''
+
+  if (token.length < 32) {
+    throw new Error(
+      `PRINT_AGENT_TOKEN is missing or too short in ${getConfigSourceLabel()}. Provision a unique token with at least 32 characters for this computer.`
+    )
+  }
 
   let baseUrl = `http://127.0.0.1:${port}`
 
   if (baseUrlOverride) {
     try {
       const url = new URL(baseUrlOverride)
+
+      if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname)) {
+        throw new Error('Printer agent must use http://127.0.0.1 or http://localhost')
+      }
+
+      url.hostname = '127.0.0.1'
       url.port = String(port)
       baseUrl = url.origin
     } catch {
-      baseUrl = baseUrlOverride.replace(/\/+$/, '')
+      throw new Error(
+        `Invalid PRINTER_BASE_URL in ${getConfigSourceLabel()}. The printer agent must be bound to 127.0.0.1.`
+      )
     }
   }
 
@@ -416,12 +466,17 @@ function getPrinterConfig(): PrinterConfig {
   return {
     baseUrl: baseUrl.replace(/\/+$/, ''),
     folderPath,
-    port
+    port,
+    token
   }
 }
 
-function getPrinterBaseUrl(): string {
-  return getPrinterConfig().baseUrl
+function getPrinterRequestHeaders(token: string): Record<string, string> {
+  return {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    'X-Print-Agent-Token': token
+  }
 }
 
 function delay(ms: number): Promise<void> {
@@ -461,7 +516,24 @@ async function ensurePrinterServiceRunning(): Promise<void> {
   const config = getPrinterConfig()
 
   if (await isPortOpen(config.port)) {
-    return
+    try {
+      const response = await fetch(`${config.baseUrl}/printer/status`, {
+        headers: getPrinterRequestHeaders(config.token),
+        signal: AbortSignal.timeout(1000)
+      })
+
+      if (response.ok) return
+    } catch {
+      // The service on this port is stale, unsecured, or not the configured agent.
+    }
+
+    await stopPrinterProcesses()
+
+    if (await isPortOpen(config.port)) {
+      throw new Error(
+        `Printer port ${config.port} is already occupied by an incompatible service. Close it and restart the app.`
+      )
+    }
   }
 
   const entryPoint = join(config.folderPath, 'printer-run.py')
@@ -476,7 +548,8 @@ async function ensurePrinterServiceRunning(): Promise<void> {
     cwd: config.folderPath,
     env: {
       ...process.env,
-      PRINTER_PORT: String(config.port)
+      PRINTER_PORT: String(config.port),
+      PRINT_AGENT_TOKEN: config.token
     },
     stdio: 'pipe',
     windowsHide: true
@@ -520,6 +593,50 @@ async function ensurePrinterServiceRunning(): Promise<void> {
       `Printer service did not become ready on port ${config.port}. Check Python and the printer folder path.`
     )
   }
+}
+
+async function stopPrinterProcesses(): Promise<void> {
+  if (printerServiceProcess && !printerServiceProcess.killed) {
+    printerServiceProcess.kill()
+    printerServiceProcess = null
+  }
+
+  if (process.platform === 'win32') {
+    try {
+      await execFileAsync('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        "Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('python.exe', 'pythonw.exe') -and $_.CommandLine -match 'printer-run\\.py' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+      ])
+    } catch (error) {
+      console.warn('[printer-service] Failed to stop external printer service', error)
+    }
+  }
+}
+
+async function stopPrinterService(): Promise<void> {
+  if (printerShutdownPromise) {
+    return printerShutdownPromise
+  }
+
+  printerShutdownPromise = (async () => {
+    const port = parsePort(process.env['PRINTER_PORT'], 5000)
+
+    await stopPrinterProcesses()
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (!(await isPortOpen(port))) {
+        return
+      }
+
+      await delay(100)
+    }
+
+    console.warn(`[printer-service] Port ${port} is still open during application shutdown`)
+  })()
+
+  return printerShutdownPromise
 }
 
 async function apiRequest<T>(
@@ -1010,6 +1127,77 @@ function normalizeBookingQueue(payload: unknown): BookingQueueItem[] {
     .filter((item) => item.id > 0)
 }
 
+function normalizeDailyBill(record: Record<string, unknown>): DailyBillRecord {
+  const patient = getRecord(record, 'patient')
+  const doctor = getRecord(record, 'doctor')
+  const items = getArray(record, 'items')
+
+  return {
+    id: getNumber(record, 'id') ?? 0,
+    reference: getString(record, 'reference') || getString(record, 'uuid'),
+    date: getString(record, 'date'),
+    shift: getString(record, 'shift') === 'evening' ? 'evening' : 'morning',
+    status: getString(record, 'status'),
+    paymentType: (getString(record, 'payment_type') as 'cash' | 'card' | 'online') || 'cash',
+    paymentStatus: getString(record, 'payment_status'),
+    appointmentType: getString(record, 'appointment_type'),
+    serviceType: getString(record, 'service_type'),
+    billAmount: getNumber(record, 'bill_amount') ?? 0,
+    systemAmount: getNumber(record, 'system_amount') ?? 0,
+    deletedAt: getString(record, 'deleted_at') || null,
+    patient: {
+      id: patient ? getNumber(patient, 'id') : null,
+      name: patient ? getString(patient, 'name') : '',
+      telephone: patient ? getString(patient, 'telephone') : '',
+      registrationNo: patient ? getString(patient, 'registration_no') : ''
+    },
+    doctor: {
+      id: doctor ? getNumber(doctor, 'id') : null,
+      name: doctor ? getString(doctor, 'name') : '',
+      specialty: doctor ? getString(doctor, 'specialty') : ''
+    },
+    items: items
+      .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+      .map((item) => ({
+        serviceId: getNumber(item, 'service_id'),
+        serviceKey: getString(item, 'service_key'),
+        name: getString(item, 'name') || getString(item, 'service_name') || 'Item',
+        price: getString(item, 'price') || String(getNumber(item, 'bill_amount') ?? 0),
+        inHouseAmount: getNumber(item, 'system_amount') ?? 0,
+        referredAmount: getNumber(item, 'referred_amount') ?? 0,
+        totalAmount: getNumber(item, 'bill_amount') ?? 0
+      }))
+  }
+}
+
+async function listDailyBills(date: string): Promise<DailyBillRecord[]> {
+  const normalizedDate = date.trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) {
+    throw new Error('Invalid daily bill date')
+  }
+
+  const payload = await apiRequest<unknown>(
+    `/api/public/bills?date=${encodeURIComponent(normalizedDate)}`
+  )
+
+  return getCollection(payload)
+    .map(normalizeDailyBill)
+    .filter((bill) => bill.id > 0)
+}
+
+async function deleteDailyBill(id: number): Promise<{ message: string; deletedId: number }> {
+  if (!Number.isInteger(id) || id < 1) throw new Error('Invalid bill id')
+
+  const response = await apiRequest<Record<string, unknown>>(`/api/public/bills/${id}`, {
+    method: 'DELETE'
+  })
+
+  return {
+    message: getString(response, 'message') || 'Bill deleted successfully.',
+    deletedId: getNumber(response, 'deleted_id') ?? id
+  }
+}
+
 function bookingPayloadFromPatient(draft: PatientDraft): Record<string, unknown> {
   return {
     name: normalizeWhitespace(draft.name),
@@ -1023,32 +1211,17 @@ function bookingPayloadFromPatient(draft: PatientDraft): Record<string, unknown>
   }
 }
 
-function bookingTimeScopeForDate(date: string): 'today' | 'future' | 'old' {
-  const today = new Date().toISOString().slice(0, 10)
-  if (date === today) return 'today'
-  return date > today ? 'future' : 'old'
-}
-
 async function listBookings(date: string): Promise<BookingQueueItem[]> {
   const normalizedDate = date.trim()
-  const attempts = [
-    `/api/public/bookings?date=${encodeURIComponent(normalizedDate)}`,
-    `/api/bills/bookings/${bookingTimeScopeForDate(normalizedDate)}?date=${encodeURIComponent(normalizedDate)}`
-  ]
-
-  for (const path of attempts) {
-    try {
-      const payload = await apiRequest<unknown>(path, {}, { allowNotFound: true })
-      const bookings = normalizeBookingQueue(payload)
-      if (bookings.length > 0) {
-        return bookings.filter((item) => item.date.startsWith(normalizedDate))
-      }
-    } catch (error) {
-      console.warn(`[listBookings] failed attempt for ${path}`, error)
-    }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) {
+    throw new Error('Invalid booking list date')
   }
 
-  return []
+  const payload = await apiRequest<unknown>(
+    `/api/public/bookings?date=${encodeURIComponent(normalizedDate)}`
+  )
+
+  return normalizeBookingQueue(payload).filter((item) => item.date.startsWith(normalizedDate))
 }
 
 async function updateBooking(payload: BookingUpdatePayload): Promise<BookingRecord> {
@@ -1156,13 +1329,95 @@ function getBillReference(bill: Record<string, unknown>): string {
   )
 }
 
+function validatePrintPayload(payload: unknown): asserts payload is PrintPayload {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('Invalid bill print payload')
+  }
+
+  const value = payload as Record<string, unknown>
+  const paymentTypes = ['cash', 'card', 'online']
+  const items = value.items
+
+  if (
+    !Number.isInteger(value.billId) ||
+    (value.billId as number) < 1 ||
+    typeof value.billReference !== 'string' ||
+    value.billReference.length > 100 ||
+    typeof value.patientName !== 'string' ||
+    value.patientName.length > 200 ||
+    typeof value.doctorName !== 'string' ||
+    value.doctorName.length > 200 ||
+    typeof value.paymentType !== 'string' ||
+    !paymentTypes.includes(value.paymentType) ||
+    !Array.isArray(items) ||
+    items.length < 1 ||
+    items.length > 100 ||
+    typeof value.total !== 'number' ||
+    !Number.isFinite(value.total) ||
+    value.total < 0
+  ) {
+    throw new Error('Invalid bill print payload')
+  }
+
+  for (const item of items) {
+    if (
+      !item ||
+      typeof item !== 'object' ||
+      Array.isArray(item) ||
+      typeof (item as Record<string, unknown>).name !== 'string' ||
+      ((item as Record<string, unknown>).name as string).length > 200 ||
+      typeof (item as Record<string, unknown>).price !== 'string' ||
+      ((item as Record<string, unknown>).price as string).length > 50
+    ) {
+      throw new Error('Invalid bill print payload')
+    }
+  }
+}
+
+function validateSummaryReport(report: unknown): asserts report is DaySummaryReport {
+  if (!report || typeof report !== 'object' || Array.isArray(report)) {
+    throw new Error('Invalid summary print payload')
+  }
+
+  const value = report as Record<string, unknown>
+  const items = value.items
+
+  if (
+    typeof value.start_date !== 'string' ||
+    value.start_date.length > 30 ||
+    typeof value.end_date !== 'string' ||
+    value.end_date.length > 30 ||
+    !Array.isArray(items) ||
+    items.length < 1 ||
+    items.length > 200
+  ) {
+    throw new Error('Invalid summary print payload')
+  }
+
+  for (const item of items) {
+    if (
+      !item ||
+      typeof item !== 'object' ||
+      Array.isArray(item) ||
+      typeof (item as Record<string, unknown>).service_name !== 'string' ||
+      ((item as Record<string, unknown>).service_name as string).length > 200 ||
+      !Number.isInteger((item as Record<string, unknown>).quantity) ||
+      ((item as Record<string, unknown>).quantity as number) < 1 ||
+      typeof (item as Record<string, unknown>).total !== 'number' ||
+      !Number.isFinite((item as Record<string, unknown>).total)
+    ) {
+      throw new Error('Invalid summary print payload')
+    }
+  }
+}
+
 async function printReceipt(payload: PrintPayload): Promise<Record<string, unknown>> {
-  const response = await fetch(`${getPrinterBaseUrl()}/print`, {
+  validatePrintPayload(payload)
+  await ensurePrinterServiceRunning()
+  const config = getPrinterConfig()
+  const response = await fetch(`${config.baseUrl}/print`, {
     method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json'
-    },
+    headers: getPrinterRequestHeaders(config.token),
     body: JSON.stringify({
       bill_reference: payload.billReference,
       payment_type: payload.paymentType,
@@ -1178,6 +1433,12 @@ async function printReceipt(payload: PrintPayload): Promise<Record<string, unkno
   const body = rawText ? safeJsonParse(rawText) : null
 
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error(
+        'Printer agent authentication failed. Restart the printer service after provisioning its token.'
+      )
+    }
+
     const message = getErrorMessage(body, response.statusText)
     throw new Error(message || `Printer request failed with status ${response.status}`)
   }
@@ -1219,28 +1480,26 @@ function normalizeDaySummaryReport(payload: unknown, requestedDate: string): Day
   }
 }
 
-async function fetchDaySummaryReport(date: string, shift: SummaryShift): Promise<DaySummaryReport> {
+async function fetchDaySummaryReport(
+  date: string,
+  shift?: SummaryShift
+): Promise<DaySummaryReport> {
   const normalizedDate = date.trim()
-  console.log(
-    'API endpoint',
-    `/api/public/reports/day-summary?date=${encodeURIComponent(normalizedDate)}&shift=${encodeURIComponent(shift)}`
-  )
+  const shiftQuery = shift ? `&shift=${encodeURIComponent(shift)}` : ''
   const payload = await apiRequest<unknown>(
-    `/api/public/reports/day-summary?date=${encodeURIComponent(normalizedDate)}&shift=${encodeURIComponent(shift)}`
+    `/api/public/reports/day-summary?date=${encodeURIComponent(normalizedDate)}${shiftQuery}`
   )
-
-  console.log('Payload day summary', payload)
 
   return normalizeDaySummaryReport(payload, normalizedDate)
 }
 
 async function printSummaryReport(report: DaySummaryReport): Promise<Record<string, unknown>> {
-  const response = await fetch(`${getPrinterBaseUrl()}/print-summary`, {
+  validateSummaryReport(report)
+  await ensurePrinterServiceRunning()
+  const config = getPrinterConfig()
+  const response = await fetch(`${config.baseUrl}/print-summary`, {
     method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json'
-    },
+    headers: getPrinterRequestHeaders(config.token),
     body: JSON.stringify(report)
   })
 
@@ -1248,6 +1507,12 @@ async function printSummaryReport(report: DaySummaryReport): Promise<Record<stri
   const body = rawText ? safeJsonParse(rawText) : null
 
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error(
+        'Printer agent authentication failed. Restart the printer service after provisioning its token.'
+      )
+    }
+
     const message = getErrorMessage(body, response.statusText)
     throw new Error(message || `Summary printer request failed with status ${response.status}`)
   }
@@ -1256,7 +1521,17 @@ async function printSummaryReport(report: DaySummaryReport): Promise<Record<stri
 }
 
 async function printShiftSummary(date: string, shift: SummaryShift): Promise<SummaryPrintResult> {
-  const report = await fetchDaySummaryReport(date, shift)
+  const normalizedDate = date.trim()
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) {
+    throw new Error('Invalid summary date')
+  }
+
+  if (shift !== 'morning' && shift !== 'evening') {
+    throw new Error('Invalid summary shift')
+  }
+
+  const report = await fetchDaySummaryReport(normalizedDate, shift)
   const print = await printSummaryReport(report)
 
   return {
@@ -1266,15 +1541,16 @@ async function printShiftSummary(date: string, shift: SummaryShift): Promise<Sum
   }
 }
 
-async function printDaySummary(date: string): Promise<SummaryPrintResult[]> {
-  const shifts: SummaryShift[] = ['morning', 'evening']
-  const results: SummaryPrintResult[] = []
-
-  for (const shift of shifts) {
-    results.push(await printShiftSummary(date, shift))
+async function printDaySummary(date: string): Promise<SummaryPrintResult> {
+  const normalizedDate = date.trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) {
+    throw new Error('Invalid summary date')
   }
 
-  return results
+  const report = await fetchDaySummaryReport(normalizedDate)
+  const print = await printSummaryReport(report)
+
+  return { shift: 'day', report, print }
 }
 
 async function submitBilling(payload: BillingSubmission): Promise<BillingResult> {
@@ -1305,15 +1581,22 @@ function createWindow(): void {
     minWidth: 1300,
     minHeight: 820,
     show: false,
+    backgroundColor: '#09090b',
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true
     }
   })
 
-  mainWindow.on('ready-to-show', () => {
+  let hasShownWindow = false
+  const showMainWindow = (): void => {
+    if (hasShownWindow || mainWindow.isDestroyed()) return
+
+    hasShownWindow = true
     mainWindow.show()
 
     if (createdRuntimeConfigPath) {
@@ -1326,6 +1609,38 @@ function createWindow(): void {
         mainWindow
       )
     }
+  }
+
+  // `ready-to-show` can be skipped on some Windows GPU/sandbox combinations.
+  // `did-finish-load` and the timeout keep the app from remaining hidden forever.
+  mainWindow.once('ready-to-show', showMainWindow)
+  mainWindow.webContents.once('did-finish-load', showMainWindow)
+
+  const showFallbackTimer = setTimeout(showMainWindow, 3000)
+  mainWindow.once('closed', () => clearTimeout(showFallbackTimer))
+
+  mainWindow.webContents.on(
+    'did-fail-load',
+    (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (!isMainFrame) return
+
+      console.error(`[renderer] Failed to load ${validatedURL}: ${errorDescription} (${errorCode})`)
+      showMainWindow()
+    }
+  )
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error(`[renderer] Process exited: ${details.reason} (${details.exitCode})`)
+    showMainWindow()
+  })
+
+  mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
+    console.error(`[preload] Failed to load ${preloadPath}`, error)
+  })
+
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    const logMethod = level >= 2 ? console.error : console.log
+    logMethod(`[renderer:${level}] ${message} (${sourceId}:${line})`)
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -1422,17 +1737,30 @@ handlePromiseError(
       return deleteBooking(id)
     })
 
+    ipcMain.handle('daily-bills:list', async (_, date: string) => {
+      return listDailyBills(date)
+    })
+
+    ipcMain.handle('daily-bills:delete', async (_, id: number) => {
+      return deleteDailyBill(id)
+    })
+
     ipcMain.handle('booking:proceed-to-payment', async (_, payload: BookingProceedPayload) => {
       return proceedBookingToPayment(payload)
     })
 
     ipcMain.handle('receipt:print', async (_, payload: PrintPayload) => {
+      validatePrintPayload(payload)
       return printReceipt(payload)
     })
 
     ipcMain.handle(
       'summary-report:print',
       async (_, payload: { date: string; shift: SummaryShift }) => {
+        if (!payload || typeof payload.date !== 'string') {
+          throw new Error('Invalid summary print request')
+        }
+
         return printShiftSummary(payload.date, payload.shift)
       }
     )
@@ -1454,12 +1782,18 @@ handlePromiseError(
   { title: 'App startup failed' }
 )
 
-app.on('window-all-closed', () => {
-  if (printerServiceProcess && !printerServiceProcess.killed) {
-    printerServiceProcess.kill()
-    printerServiceProcess = null
-  }
+app.on('before-quit', (event) => {
+  if (isQuitting) return
 
+  event.preventDefault()
+  isQuitting = true
+
+  void stopPrinterService().finally(() => {
+    app.exit()
+  })
+})
+
+app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
