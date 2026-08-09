@@ -14,7 +14,17 @@ type Shift = 'Morning' | 'Evening'
 type SearchField = 'name' | 'telephone'
 type WorkspaceTab = 'billing' | 'bookings' | 'summary'
 type SummaryShift = 'morning' | 'evening'
+type SummaryAction = SummaryShift | 'day'
 type ThemeMode = 'dark' | 'light'
+type AppUpdateState = {
+  status:
+    'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error' | 'disabled'
+  version?: string
+  message?: string
+}
+
+const DAILY_BILLS_PAGE_SIZE = 20
+const SERVICE_SUMMARY_PAGE_SIZE = 40
 
 interface PatientInfo {
   id: number | null
@@ -206,6 +216,8 @@ interface FormPreferences {
 
 type RendererApi = {
   getThemeConfig: () => Promise<RendererThemeConfig>
+  checkForUpdates: () => Promise<void>
+  installUpdate: () => Promise<boolean>
   searchPatients: (query: string) => Promise<PatientRecord[]>
   listDoctors: (options?: DoctorListOptions) => Promise<DoctorOption[]>
   searchBillingServices: (
@@ -274,6 +286,7 @@ type RendererApi = {
   }) => Promise<SummaryPrintResult>
   printDaySummary: (date: string) => Promise<SummaryPrintResult>
   onAppNotification: (callback: (notification: AppNotification) => void) => () => void
+  onUpdateState: (callback: (state: AppUpdateState) => void) => () => void
 }
 
 const inputClassName =
@@ -529,10 +542,10 @@ function defaultDoctorIdForOperation(doctors: DoctorOption[], operation: Operati
 }
 
 function applyOpdDoctorDefaults(
-  current: { doctorId: number; consultationFee: string; medicineFee: string },
+  current: { doctorId: number; consultationFee: string; medicineFee: string; rows: ChargeRow[] },
   doctorId: number,
   defaults?: { consultationFee: string; medicineFee: string }
-): { doctorId: number; consultationFee: string; medicineFee: string } {
+): { doctorId: number; consultationFee: string; medicineFee: string; rows: ChargeRow[] } {
   const next = {
     ...current,
     doctorId,
@@ -649,7 +662,8 @@ function SearchBox({
   onFocus,
   onBlur,
   onChange,
-  onSelect
+  onSelect,
+  required
 }: {
   label: string
   field: SearchField
@@ -661,16 +675,21 @@ function SearchBox({
   onBlur: () => void
   onChange: (value: string) => void
   onSelect: (user: PatientRecord) => void
+  required?: boolean
 }): React.JSX.Element {
   return (
     <div className="relative">
-      <Label>{label}</Label>
+      <Label>
+        {label}
+        {required ? ' *' : ''}
+      </Label>
       <Input
         value={value}
         onChange={(event) => onChange(event.target.value)}
         onFocus={() => onFocus(field)}
         onBlur={() => setTimeout(onBlur, 180)}
         placeholder={placeholder}
+        required={required}
         className={inputClassName}
       />
       {activeField === field && results.length > 0 ? (
@@ -747,7 +766,7 @@ function App(): React.JSX.Element {
   const [bookingQueueRefreshKey, setBookingQueueRefreshKey] = useState(0)
   const [summaryPrintState, setSummaryPrintState] = useState<{
     status: 'idle' | 'loading' | 'success' | 'error'
-    action: SummaryShift | null
+    action: SummaryAction | null
     message: string
   }>({
     status: 'idle',
@@ -758,13 +777,21 @@ function App(): React.JSX.Element {
   const [dailyBillsLoading, setDailyBillsLoading] = useState(false)
   const [dailyBillsError, setDailyBillsError] = useState('')
   const [dailyBillsRefreshKey, setDailyBillsRefreshKey] = useState(0)
+  const [dailyBillsPage, setDailyBillsPage] = useState(1)
+  const [serviceSummaryPage, setServiceSummaryPage] = useState(1)
   const [deletingDailyBillId, setDeletingDailyBillId] = useState<number | null>(null)
   const [printingDailyBillId, setPrintingDailyBillId] = useState<number | null>(null)
   const [proceedingBookingId, setProceedingBookingId] = useState<number | null>(null)
   const [paymentPromptBooking, setPaymentPromptBooking] = useState<BookingQueueItem | null>(null)
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => loadThemePreference())
-  const [opd, setOpd] = useState({ doctorId: 0, consultationFee: '', medicineFee: '' })
+  const [updateState, setUpdateState] = useState<AppUpdateState>({ status: 'disabled' })
+  const [opd, setOpd] = useState({
+    doctorId: 0,
+    consultationFee: '',
+    medicineFee: '',
+    rows: [makeRow()] as ChargeRow[]
+  })
   const [channeling, setChanneling] = useState({
     doctorId: 0,
     consultationFee: '',
@@ -799,7 +826,7 @@ function App(): React.JSX.Element {
   const fetchServiceSuggestions = async (
     rowId: string,
     query: string,
-    operation: 'dental' | 'others'
+    operation: 'opd' | 'dental' | 'others'
   ): Promise<void> => {
     const normalizedQuery = query.trim()
     if (normalizedQuery.length < 2) {
@@ -844,7 +871,7 @@ function App(): React.JSX.Element {
     }
   }
   const applySuggestedService = (
-    operation: 'dental' | 'others',
+    operation: 'opd' | 'dental' | 'others',
     rowId: string,
     serviceName: string
   ): void => {
@@ -860,6 +887,14 @@ function App(): React.JSX.Element {
       inHouseAmount: row.inHouseAmount || String(suggestion.inHousePrice || ''),
       referredAmount: row.referredAmount || String(suggestion.referredPrice || '')
     })
+
+    if (operation === 'opd') {
+      setOpd((current) => ({
+        ...current,
+        rows: current.rows.map((row) => (row.id === rowId ? apply(row) : row))
+      }))
+      return
+    }
 
     if (operation === 'dental') {
       setDental((current) => ({
@@ -903,6 +938,8 @@ function App(): React.JSX.Element {
   }
   const refreshDailyBills = (): void => {
     setDailyBillsLoading(true)
+    setDailyBillsPage(1)
+    setServiceSummaryPage(1)
     setDailyBillsRefreshKey((current) => current + 1)
   }
   const {
@@ -920,6 +957,47 @@ function App(): React.JSX.Element {
       ])
     })
   }, [api])
+
+  useEffect(() => {
+    return api.onUpdateState((state) => {
+      setUpdateState(state)
+      if (state.status === 'available') {
+        pushToast(
+          'info',
+          'Update available',
+          `Version ${state.version ?? 'new'} is downloading in the background.`
+        )
+      } else if (state.status === 'downloaded') {
+        pushToast(
+          'success',
+          'Update ready',
+          `Version ${state.version ?? 'new'} is ready. Restart the app to install it.`
+        )
+      } else if (state.status === 'error') {
+        pushToast('warning', 'Update check failed', state.message ?? 'Unable to check for updates.')
+      }
+    })
+  }, [api])
+
+  const handleCheckForUpdates = async (): Promise<void> => {
+    setUpdateState({ status: 'checking' })
+    try {
+      await api.checkForUpdates()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to check for updates.'
+      setUpdateState({ status: 'error', message })
+      pushToast('warning', 'Update check failed', message)
+    }
+  }
+
+  const handleInstallUpdate = async (): Promise<void> => {
+    try {
+      await api.installUpdate()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to install the update.'
+      pushToast('error', 'Update installation failed', message)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -1277,7 +1355,13 @@ function App(): React.JSX.Element {
       setOpd({
         doctorId: booking.doctor.id ?? 0,
         consultationFee: bookingItemAmount(booking.items, ['doctor fee', 'consultation']),
-        medicineFee: bookingItemAmount(booking.items, ['medicine charge', 'opd medicine fee'])
+        medicineFee: bookingItemAmount(booking.items, ['medicine charge', 'opd medicine fee']),
+        rows: bookingItemRows(booking.items, [
+          'doctor fee',
+          'consultation',
+          'medicine charge',
+          'opd medicine fee'
+        ])
       })
       return
     }
@@ -1327,7 +1411,14 @@ function App(): React.JSX.Element {
     activeOperation === 'opd'
       ? [
           { label: 'Doctor Fee', inHouse: 0, referred: num(opd.consultationFee) },
-          { label: 'Medicine Charge', inHouse: 0, referred: num(opd.medicineFee) }
+          { label: 'Medicine Charge', inHouse: 0, referred: num(opd.medicineFee) },
+          ...opd.rows.map((row) => ({
+            label: row.label || 'OPD Service',
+            inHouse: num(row.inHouseAmount),
+            referred: num(row.referredAmount),
+            serviceId: row.serviceId,
+            category: 'opd' as const
+          }))
         ]
       : activeOperation === 'channeling'
         ? [
@@ -1867,13 +1958,38 @@ function App(): React.JSX.Element {
       pushToast('success', `${shiftLabel} summary printed`, message)
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : `Failed to print ${shiftLabel.toLowerCase()} summary`
+        error instanceof Error
+          ? error.message
+          : `Failed to print ${shiftLabel.toLowerCase()} summary`
       setSummaryPrintState({
         status: 'error',
         action: summaryShift,
         message
       })
       pushToast('error', `${shiftLabel} summary print failed`, message)
+    }
+  }
+
+  const handlePrintDaySummary = async (): Promise<void> => {
+    const today = todayIsoDate()
+    setSummaryPrintState({
+      status: 'loading',
+      action: 'day',
+      message: `Printing day summary for ${today}...`
+    })
+
+    try {
+      const result = await api.printDaySummary(today)
+      const message =
+        result.report.items.length > 0
+          ? `Day summary printed for ${today}.`
+          : `Day summary printed for ${today} with no active services.`
+      setSummaryPrintState({ status: 'success', action: 'day', message })
+      pushToast('success', 'Day summary printed', message)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to print day summary'
+      setSummaryPrintState({ status: 'error', action: 'day', message })
+      pushToast('error', 'Day summary print failed', message)
     }
   }
 
@@ -1920,6 +2036,43 @@ function App(): React.JSX.Element {
   const activeDailyBills = dailyBills.filter((bill) => bill.deletedAt === null)
   const deletedDailyBills = dailyBills.filter((bill) => bill.deletedAt !== null)
   const activeDayTotal = activeDailyBills.reduce((total, bill) => total + bill.billAmount, 0)
+  const groupedDayServices = Array.from(
+    activeDailyBills
+      .flatMap((bill) => bill.items)
+      .reduce((groups, item) => {
+        const name = item.name.trim() || 'Unnamed service'
+        const current = groups.get(name) ?? { name, quantity: 0, total: 0 }
+        current.quantity += 1
+        current.total += item.totalAmount ?? num(item.price)
+        groups.set(name, current)
+        return groups
+      }, new Map<string, { name: string; quantity: number; total: number }>())
+      .values()
+  ).sort((left, right) => left.name.localeCompare(right.name))
+  const dailyBillsPageCount = Math.max(
+    1,
+    Math.ceil(activeDailyBills.length / DAILY_BILLS_PAGE_SIZE)
+  )
+  const serviceSummaryPageCount = Math.max(
+    1,
+    Math.ceil(groupedDayServices.length / SERVICE_SUMMARY_PAGE_SIZE)
+  )
+  const visibleDailyBills = activeDailyBills.slice(
+    (dailyBillsPage - 1) * DAILY_BILLS_PAGE_SIZE,
+    dailyBillsPage * DAILY_BILLS_PAGE_SIZE
+  )
+  const visibleGroupedDayServices = groupedDayServices.slice(
+    (serviceSummaryPage - 1) * SERVICE_SUMMARY_PAGE_SIZE,
+    serviceSummaryPage * SERVICE_SUMMARY_PAGE_SIZE
+  )
+
+  useEffect(() => {
+    setDailyBillsPage((current) => Math.min(current, dailyBillsPageCount))
+  }, [dailyBillsPageCount])
+
+  useEffect(() => {
+    setServiceSummaryPage((current) => Math.min(current, serviceSummaryPageCount))
+  }, [serviceSummaryPageCount])
 
   return (
     <main
@@ -2005,13 +2158,35 @@ function App(): React.JSX.Element {
                 <h1 className="text-theme-strong text-xl font-semibold tracking-tight">
                   Simple billing flow for clinic operators
                 </h1>
-                <p className="text-theme-muted text-xs">
-                  Search patient details, select visit type, enter charges, and generate a bill or
-                  save a booking.
-                </p>
               </div>
             </div>
             <div className="flex flex-wrap gap-3">
+              {updateState.status === 'downloaded' ? (
+                <Button
+                  type="button"
+                  onClick={() => void handleInstallUpdate()}
+                  className="h-11 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-theme-primary-button hover:bg-primary/90"
+                >
+                  Restart to Update
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void handleCheckForUpdates()}
+                  disabled={
+                    updateState.status === 'checking' || updateState.status === 'downloading'
+                  }
+                  className="panel-shell h-11 rounded-lg px-3 text-xs"
+                  title="Check for a newer application version"
+                >
+                  {updateState.status === 'checking'
+                    ? 'Checking for Updates...'
+                    : updateState.status === 'downloading'
+                      ? 'Downloading Update...'
+                      : 'Check for Updates'}
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="outline"
@@ -2165,6 +2340,7 @@ function App(): React.JSX.Element {
                     }}
                     onChange={(value) => handlePatientIdentityFieldChange('name', value)}
                     onSelect={fillPatient}
+                    required
                   />
                   <SearchBox
                     label="Telephone"
@@ -2181,6 +2357,7 @@ function App(): React.JSX.Element {
                     }}
                     onChange={(value) => handlePatientIdentityFieldChange('telephone', value)}
                     onSelect={fillPatient}
+                    required
                   />
                   <div>
                     <Label>Registration No</Label>
@@ -2201,7 +2378,7 @@ function App(): React.JSX.Element {
                     />
                   </div>
                   <div>
-                    <Label>Date Of Birth / Age</Label>
+                    <Label>Date Of Birth / Age (Age required) *</Label>
                     <div className="grid gap-3 md:grid-cols-[minmax(0,3fr)_minmax(0,1fr)]">
                       <Input
                         value={patient.dateOfBirth}
@@ -2213,6 +2390,7 @@ function App(): React.JSX.Element {
                         value={patient.age}
                         onChange={(event) => setPatientAge(event.target.value)}
                         placeholder="Age"
+                        required
                         className={inputClassName}
                       />
                     </div>
@@ -2331,6 +2509,125 @@ function App(): React.JSX.Element {
                           placeholder="0"
                           className={inputClassName}
                         />
+                      </div>
+                      <div className="space-y-2.5 lg:col-span-2">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-theme-muted">
+                            Additional OPD services
+                          </p>
+                          <p className="mt-1 text-xs text-theme-muted">
+                            Search starts after 2 characters. Type a new name if the API has no
+                            match; new names are sent as ad-hoc bill items until the backend service
+                            route is available.
+                          </p>
+                        </div>
+                        {opd.rows.map((row) => (
+                          <div
+                            key={row.id}
+                            className="grid gap-3 rounded-lg border border-border/90 bg-white/2 p-3 lg:grid-cols-[1.4fr_120px_120px_90px]"
+                          >
+                            <div>
+                              <Label>Service</Label>
+                              <Input
+                                list={`opd-services-${row.id}`}
+                                value={row.label}
+                                onChange={(event) => {
+                                  const value = event.target.value
+                                  setOpd((current) => ({
+                                    ...current,
+                                    rows: current.rows.map((item) =>
+                                      item.id === row.id
+                                        ? { ...item, label: value, serviceId: null }
+                                        : item
+                                    )
+                                  }))
+                                  void fetchServiceSuggestions(row.id, value, 'opd')
+                                }}
+                                onBlur={(event) =>
+                                  applySuggestedService('opd', row.id, event.target.value)
+                                }
+                                placeholder="OPD service name"
+                                className={inputClassName}
+                              />
+                              <datalist id={`opd-services-${row.id}`}>
+                                {(serviceSuggestions[row.id] ?? []).map((item) => (
+                                  <option
+                                    key={`${row.id}-${item.id}-${item.name}`}
+                                    value={item.name}
+                                  >
+                                    {item.name}
+                                  </option>
+                                ))}
+                              </datalist>
+                            </div>
+                            <div>
+                              <Label>In-house</Label>
+                              <Input
+                                type="number"
+                                value={row.inHouseAmount}
+                                onChange={(event) =>
+                                  setOpd((current) => ({
+                                    ...current,
+                                    rows: current.rows.map((item) =>
+                                      item.id === row.id
+                                        ? { ...item, inHouseAmount: event.target.value }
+                                        : item
+                                    )
+                                  }))
+                                }
+                                placeholder="0"
+                                className={inputClassName}
+                              />
+                            </div>
+                            <div>
+                              <Label>Referred</Label>
+                              <Input
+                                type="number"
+                                value={row.referredAmount}
+                                onChange={(event) =>
+                                  setOpd((current) => ({
+                                    ...current,
+                                    rows: current.rows.map((item) =>
+                                      item.id === row.id
+                                        ? { ...item, referredAmount: event.target.value }
+                                        : item
+                                    )
+                                  }))
+                                }
+                                placeholder="0"
+                                className={inputClassName}
+                              />
+                            </div>
+                            <div className="flex items-end">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() =>
+                                  setOpd((current) => ({
+                                    ...current,
+                                    rows: current.rows.filter((item) => item.id !== row.id)
+                                  }))
+                                }
+                                className={cn(softButtonClassName, 'w-full')}
+                              >
+                                Remove
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            setOpd((current) => ({
+                              ...current,
+                              rows: [...current.rows, makeRow()]
+                            }))
+                          }
+                          className={softButtonClassName}
+                        >
+                          Add OPD Service
+                        </Button>
                       </div>
                     </div>
                   ) : null}
@@ -2955,10 +3252,6 @@ function App(): React.JSX.Element {
                 <div className="flex flex-col gap-3 rounded-lg border border-border/90 bg-[#111923] p-4 md:flex-row md:items-center md:justify-between">
                   <div>
                     <p className="text-sm font-semibold text-white">Bills for {todayIsoDate()}</p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      Morning and evening bills are shown together. Delete incorrect bills before
-                      printing the relevant shift summary.
-                    </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button
@@ -2969,6 +3262,20 @@ function App(): React.JSX.Element {
                       className={softButtonClassName}
                     >
                       {dailyBillsLoading ? 'Refreshing...' : 'Refresh List'}
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => void handlePrintDaySummary()}
+                      disabled={
+                        summaryPrintState.status === 'loading' ||
+                        dailyBillsLoading ||
+                        activeDailyBills.length === 0
+                      }
+                      className="h-9 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground shadow-theme-primary-button hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {summaryPrintState.status === 'loading' && summaryPrintState.action === 'day'
+                        ? 'Printing Day Summary...'
+                        : 'Print Day Summary'}
                     </Button>
                     {(['morning', 'evening'] as SummaryShift[]).map((summaryShift) => {
                       const shiftLabel = summaryShiftLabel(summaryShift)
@@ -3033,7 +3340,7 @@ function App(): React.JSX.Element {
                             </td>
                           </tr>
                         ) : (
-                          activeDailyBills.map((bill) => (
+                          visibleDailyBills.map((bill) => (
                             <tr key={bill.id} className="text-slate-300">
                               <td className="px-3 py-3 font-medium text-white">
                                 {bill.reference || `#${bill.id}`}
@@ -3103,6 +3410,127 @@ function App(): React.JSX.Element {
                       </tbody>
                     </table>
                   </div>
+                  {activeDailyBills.length > DAILY_BILLS_PAGE_SIZE ? (
+                    <div className="flex items-center justify-between gap-3 border-t border-border/70 bg-[#101720] px-3 py-2 text-xs text-slate-400">
+                      <span>
+                        Showing {(dailyBillsPage - 1) * DAILY_BILLS_PAGE_SIZE + 1}-
+                        {Math.min(dailyBillsPage * DAILY_BILLS_PAGE_SIZE, activeDailyBills.length)}{' '}
+                        of {activeDailyBills.length} bills
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setDailyBillsPage((current) => Math.max(1, current - 1))}
+                          disabled={dailyBillsPage === 1}
+                          className={softButtonClassName}
+                        >
+                          Previous
+                        </Button>
+                        <span className="text-slate-300">
+                          Page {dailyBillsPage} of {dailyBillsPageCount}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            setDailyBillsPage((current) =>
+                              Math.min(dailyBillsPageCount, current + 1)
+                            )
+                          }
+                          disabled={dailyBillsPage === dailyBillsPageCount}
+                          className={softButtonClassName}
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="rounded-lg border border-border/90 bg-white/2 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-white">Services summary</p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        Active bill items grouped by service. Deleted bills are excluded.
+                      </p>
+                    </div>
+                    <span className="text-xs font-semibold text-primary">
+                      {money(groupedDayServices.reduce((sum, item) => sum + item.total, 0))}
+                    </span>
+                  </div>
+                  <div className="mt-3 overflow-hidden rounded-md border border-border/90">
+                    <table className="min-w-full text-left text-xs">
+                      <thead className="bg-white/4 text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                        <tr>
+                          <th className="px-3 py-2.5">Service</th>
+                          <th className="px-3 py-2.5 text-right">Quantity</th>
+                          <th className="px-3 py-2.5 text-right">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/70 bg-[#101720]">
+                        {groupedDayServices.length === 0 ? (
+                          <tr>
+                            <td colSpan={3} className="px-3 py-5 text-center text-slate-400">
+                              No active service items for today.
+                            </td>
+                          </tr>
+                        ) : (
+                          visibleGroupedDayServices.map((item) => (
+                            <tr key={item.name} className="text-slate-300">
+                              <td className="px-3 py-2.5 font-medium text-white">{item.name}</td>
+                              <td className="px-3 py-2.5 text-right">{item.quantity}</td>
+                              <td className="px-3 py-2.5 text-right font-semibold text-white">
+                                {money(item.total)}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  {groupedDayServices.length > SERVICE_SUMMARY_PAGE_SIZE ? (
+                    <div className="flex items-center justify-between gap-3 border-t border-border/70 bg-[#101720] px-3 py-2 text-xs text-slate-400">
+                      <span>
+                        Showing {(serviceSummaryPage - 1) * SERVICE_SUMMARY_PAGE_SIZE + 1}-
+                        {Math.min(
+                          serviceSummaryPage * SERVICE_SUMMARY_PAGE_SIZE,
+                          groupedDayServices.length
+                        )}{' '}
+                        of {groupedDayServices.length} services
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            setServiceSummaryPage((current) => Math.max(1, current - 1))
+                          }
+                          disabled={serviceSummaryPage === 1}
+                          className={softButtonClassName}
+                        >
+                          Previous
+                        </Button>
+                        <span className="text-slate-300">
+                          Page {serviceSummaryPage} of {serviceSummaryPageCount}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            setServiceSummaryPage((current) =>
+                              Math.min(serviceSummaryPageCount, current + 1)
+                            )
+                          }
+                          disabled={serviceSummaryPage === serviceSummaryPageCount}
+                          className={softButtonClassName}
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-3">

@@ -213,6 +213,13 @@ type AppNotification = {
   message: string
 }
 
+type AppUpdateState = {
+  status:
+    'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error' | 'disabled'
+  version?: string
+  message?: string
+}
+
 type ThemeConfig = {
   baseColor: string
 }
@@ -222,6 +229,8 @@ declare global {
     api: {
       listUsers(): Promise<Array<{ id: number; [key: string]: unknown }>>
       getThemeConfig(): Promise<ThemeConfig>
+      checkForUpdates(): Promise<void>
+      installUpdate(): Promise<boolean>
       searchPatients(query: string): Promise<PatientRecord[]>
       listDoctors(options?: DoctorListOptions): Promise<DoctorRecord[]>
       searchBillingServices(
@@ -250,6 +259,7 @@ declare global {
       }): Promise<SummaryPrintResult>
       printDaySummary(date: string): Promise<SummaryPrintResult>
       onAppNotification(callback: (notification: AppNotification) => void): () => void
+      onUpdateState(callback: (state: AppUpdateState) => void): () => void
     }
   }
 }

@@ -12,6 +12,7 @@ app.commandLine.appendSwitch('disable-autofill')
 
 import { dirname, join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { autoUpdater } from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
 import { PrismaClient } from '../generated/prisma/client'
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
@@ -26,6 +27,8 @@ const DEFAULT_RUNTIME_CONFIG = [
   'API_REFERER=http://test-b.local',
   'API_AUTH_TOKEN=',
   'THEME_BASE_COLOR=#522e90',
+  '# Generic update feed containing latest.yml and installer artifacts.',
+  'UPDATE_SERVER_URL=',
   '# Optional override. When set, PRINTER_PORT is still applied to this host.',
   'PRINTER_BASE_URL=http://127.0.0.1',
   'PRINTER_PORT=5000',
@@ -176,6 +179,13 @@ type SummaryPrintResult = {
   print: Record<string, unknown>
 }
 
+type AppUpdateState = {
+  status:
+    'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error' | 'disabled'
+  version?: string
+  message?: string
+}
+
 type DailyBillRecord = {
   id: number
   reference: string
@@ -312,6 +322,7 @@ type PrinterConfig = {
 }
 
 const APP_NOTIFICATION_CHANNEL = 'app:notification'
+const APP_UPDATE_CHANNEL = 'app:update'
 
 function getUnknownErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message
@@ -331,6 +342,77 @@ function broadcastAppNotification(notification: AppNotification, window?: Browse
     if (target.isDestroyed()) continue
     target.webContents.send(APP_NOTIFICATION_CHANNEL, notification)
   }
+}
+
+function broadcastAppUpdate(state: AppUpdateState): void {
+  for (const target of BrowserWindow.getAllWindows()) {
+    if (target.isDestroyed()) continue
+    target.webContents.send(APP_UPDATE_CHANNEL, state)
+  }
+}
+
+function updateFeedUrl(): string {
+  return process.env['UPDATE_SERVER_URL']?.trim().replace(/\/$/, '') ?? ''
+}
+
+function configureAutoUpdater(): void {
+  if (!app.isPackaged) {
+    broadcastAppUpdate({ status: 'disabled', message: 'Updates are disabled in development mode.' })
+    return
+  }
+
+  const feedUrl = updateFeedUrl()
+  if (!feedUrl) {
+    broadcastAppUpdate({
+      status: 'disabled',
+      message: 'No update feed is configured for this installation.'
+    })
+    return
+  }
+
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = false
+  autoUpdater.setFeedURL({ provider: 'generic', url: feedUrl })
+
+  autoUpdater.on('checking-for-update', () => {
+    broadcastAppUpdate({ status: 'checking' })
+  })
+  autoUpdater.on('update-available', (info) => {
+    broadcastAppUpdate({ status: 'available', version: info.version })
+  })
+  autoUpdater.on('update-not-available', (info) => {
+    broadcastAppUpdate({ status: 'not-available', version: info.version })
+  })
+  autoUpdater.on('download-progress', () => {
+    broadcastAppUpdate({ status: 'downloading' })
+  })
+  autoUpdater.on('update-downloaded', (info) => {
+    broadcastAppUpdate({ status: 'downloaded', version: info.version })
+  })
+  autoUpdater.on('error', (error) => {
+    broadcastAppUpdate({ status: 'error', message: getUnknownErrorMessage(error) })
+  })
+
+  void autoUpdater.checkForUpdates().catch((error: unknown) => {
+    broadcastAppUpdate({ status: 'error', message: getUnknownErrorMessage(error) })
+  })
+}
+
+async function checkForUpdates(): Promise<void> {
+  if (!app.isPackaged) {
+    broadcastAppUpdate({ status: 'disabled', message: 'Updates are disabled in development mode.' })
+    return
+  }
+
+  if (!updateFeedUrl()) {
+    broadcastAppUpdate({
+      status: 'disabled',
+      message: 'No update feed is configured for this installation.'
+    })
+    return
+  }
+
+  await autoUpdater.checkForUpdates()
 }
 
 function reportAppError(
@@ -1706,6 +1788,16 @@ handlePromiseError(
       return getThemeConfig()
     })
 
+    ipcMain.handle('updates:check', async () => {
+      await checkForUpdates()
+    })
+
+    ipcMain.handle('updates:install', () => {
+      if (!app.isPackaged || !updateFeedUrl()) return false
+      autoUpdater.quitAndInstall(false, true)
+      return true
+    })
+
     ipcMain.handle('doctors:list', async (_, options?: DoctorListOptions) => {
       return listDoctors(options)
     })
@@ -1770,6 +1862,7 @@ handlePromiseError(
     })
 
     createWindow()
+    configureAutoUpdater()
     handlePromiseError(ensurePrinterServiceRunning(), 'Start printer service', {
       title: 'Printer service unavailable'
     })

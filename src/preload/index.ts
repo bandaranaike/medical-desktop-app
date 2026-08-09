@@ -213,16 +213,26 @@ type AppNotification = {
   message: string
 }
 
+type AppUpdateState = {
+  status:
+    'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error' | 'disabled'
+  version?: string
+  message?: string
+}
+
 type ThemeConfig = {
   baseColor: string
 }
 
 const APP_NOTIFICATION_CHANNEL = 'app:notification'
+const APP_UPDATE_CHANNEL = 'app:update'
 
 const api = {
   createUser: (user: { name: string; email: string }) => ipcRenderer.invoke('user:create', user),
   listUsers: () => ipcRenderer.invoke('user:list'),
   getThemeConfig: (): Promise<ThemeConfig> => ipcRenderer.invoke('theme:config'),
+  checkForUpdates: (): Promise<void> => ipcRenderer.invoke('updates:check'),
+  installUpdate: (): Promise<boolean> => ipcRenderer.invoke('updates:install'),
   searchPatients: (query: string): Promise<PatientRecord[]> =>
     ipcRenderer.invoke('patients:search', query),
   listDoctors: (options?: DoctorListOptions): Promise<DoctorRecord[]> =>
@@ -272,6 +282,17 @@ const api = {
 
     return () => {
       ipcRenderer.removeListener(APP_NOTIFICATION_CHANNEL, listener)
+    }
+  },
+  onUpdateState: (callback: (state: AppUpdateState) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: AppUpdateState): void => {
+      callback(state)
+    }
+
+    ipcRenderer.on(APP_UPDATE_CHANNEL, listener)
+
+    return () => {
+      ipcRenderer.removeListener(APP_UPDATE_CHANNEL, listener)
     }
   }
 }
