@@ -36,6 +36,8 @@ This is the current structured task index for `.ai/tasks/`.
 | TASK-127 | done    | Summary Pagination And OPD Service Search                      | `.ai/tasks/active/summary-pagination-and-opd-service-search.md`        | 20-bill and 40-service pagination implemented; OPD API dependency documented                                           |
 | TASK-128 | planned | Reception OPD Service Lookup Endpoint                          | `.ai/tasks/planned/backend-opd-service-lookup.md`                      | API-project task: add reception-safe OPD service autocomplete route                                                    |
 | TASK-129 | done    | Self-Update Support                                            | `.ai/tasks/done/self-update-support.md`                                | configurable electron-updater checks, background download, and restart installation implemented                    |
+| TASK-130 | done    | Summary Print Empty Report                                     | `.ai/tasks/active/summary-print-empty-report.md`                         | allow valid zero-sales morning, evening, and day summaries to print                                                   |
+| TASK-131 | done    | OPD Additional Service Autocomplete                           | `.ai/tasks/done/opd-additional-service-autocomplete.md`                   | OPD Additional Services already matches Others autocomplete behavior                                                |
 
 ## Notes
 

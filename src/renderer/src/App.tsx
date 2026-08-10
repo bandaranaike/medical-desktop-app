@@ -2378,7 +2378,7 @@ function App(): React.JSX.Element {
                     />
                   </div>
                   <div>
-                    <Label>Date Of Birth / Age (Age required) *</Label>
+                    <Label>Date Of Birth / Age *</Label>
                     <div className="grid gap-3 md:grid-cols-[minmax(0,3fr)_minmax(0,1fr)]">
                       <Input
                         value={patient.dateOfBirth}

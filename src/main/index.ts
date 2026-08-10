@@ -1470,7 +1470,6 @@ function validateSummaryReport(report: unknown): asserts report is DaySummaryRep
     typeof value.end_date !== 'string' ||
     value.end_date.length > 30 ||
     !Array.isArray(items) ||
-    items.length < 1 ||
     items.length > 200
   ) {
     throw new Error('Invalid summary print payload')
@@ -1568,11 +1567,49 @@ async function fetchDaySummaryReport(
 ): Promise<DaySummaryReport> {
   const normalizedDate = date.trim()
   const shiftQuery = shift ? `&shift=${encodeURIComponent(shift)}` : ''
-  const payload = await apiRequest<unknown>(
-    `/api/public/reports/day-summary?date=${encodeURIComponent(normalizedDate)}${shiftQuery}`
-  )
 
-  return normalizeDaySummaryReport(payload, normalizedDate)
+  try {
+    const payload = await apiRequest<unknown>(
+      `/api/public/reports/day-summary?date=${encodeURIComponent(normalizedDate)}${shiftQuery}`
+    )
+
+    return normalizeDaySummaryReport(payload, normalizedDate)
+  } catch (error) {
+    console.warn(
+      `[summary-report] Backend report endpoint failed for ${normalizedDate}${
+        shift ? ` (${shift})` : ''
+      }; deriving the report from paid bills.`,
+      error
+    )
+
+    const bills = await listDailyBills(normalizedDate)
+    const itemsByService = new Map<string, DaySummaryItem>()
+
+    for (const bill of bills) {
+      if (bill.deletedAt || (shift && bill.shift !== shift)) continue
+
+      for (const item of bill.items) {
+        const itemTotal = item.totalAmount ?? 0
+        const existing = itemsByService.get(item.name)
+        if (existing) {
+          existing.quantity += 1
+          existing.total += itemTotal
+        } else {
+          itemsByService.set(item.name, {
+            service_name: item.name,
+            quantity: 1,
+            total: itemTotal
+          })
+        }
+      }
+    }
+
+    return {
+      start_date: normalizedDate,
+      end_date: normalizedDate,
+      items: [...itemsByService.values()]
+    }
+  }
 }
 
 async function printSummaryReport(report: DaySummaryReport): Promise<Record<string, unknown>> {
