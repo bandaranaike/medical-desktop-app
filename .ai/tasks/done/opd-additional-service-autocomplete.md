@@ -21,6 +21,7 @@ Already implemented in the current renderer and main-process code:
 - API lookup is routed through the preload/main boundary.
 - Selecting a suggestion applies the service name, service id, and available prices.
 - New unmatched service names remain supported as ad-hoc bill items.
+- OPD services entered and billed are now persisted as recent services so they appear in later autocomplete searches even when the API has no receptionist-safe service-search route.
 
 ## Verification
 

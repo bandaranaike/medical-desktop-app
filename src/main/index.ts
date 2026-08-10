@@ -952,7 +952,9 @@ async function searchBillingServices(
 
   const attempts = [
     `/api/public/services/search?query=${encodeURIComponent(normalizedQuery)}${serviceType ? `&type=${encodeURIComponent(serviceType)}` : ''}`,
-    `/api/public/services?query=${encodeURIComponent(normalizedQuery)}${serviceType ? `&type=${encodeURIComponent(serviceType)}` : ''}`
+    `/api/public/services?query=${encodeURIComponent(normalizedQuery)}${serviceType ? `&type=${encodeURIComponent(serviceType)}` : ''}`,
+    `/api/public/services/search?query=${encodeURIComponent(normalizedQuery)}`,
+    `/api/public/services?query=${encodeURIComponent(normalizedQuery)}`
   ]
 
   for (const path of attempts) {

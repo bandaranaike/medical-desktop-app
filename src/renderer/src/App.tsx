@@ -198,7 +198,7 @@ interface StoredFieldDefaults {
 
 interface RecentServicePreset {
   key: string
-  operation: 'dental' | 'others'
+  operation: 'opd' | 'dental' | 'others'
   label: string
   serviceId?: number | null
   inHouseAmount?: string
@@ -835,11 +835,12 @@ function App(): React.JSX.Element {
     }
 
     const localSuggestions = formPreferences.recentServices
-      .filter(
-        (item) =>
-          item.operation === operation &&
-          item.label.toLowerCase().includes(normalizedQuery.toLowerCase())
-      )
+      .filter((item) => item.label.toLowerCase().includes(normalizedQuery.toLowerCase()))
+      .sort((left, right) => {
+        const leftPriority = left.operation === operation ? 0 : 1
+        const rightPriority = right.operation === operation ? 0 : 1
+        return leftPriority - rightPriority
+      })
       .slice(0, 5)
       .map((item) => ({
         id: item.serviceId ?? 0,
@@ -1490,7 +1491,7 @@ function App(): React.JSX.Element {
   const currentDoctorOptions = doctorOptionsForOperation(doctors, activeOperation)
   const bookingDoctorType = bookingDoctorTypeForOperation(activeOperation)
   const recentServicePresets = formPreferences.recentServices.filter(
-    (item) => item.operation === 'dental' || item.operation === 'others'
+    (item) => item.operation === 'opd' || item.operation === 'dental' || item.operation === 'others'
   )
   const bookingDraftSignature = JSON.stringify({
     isBooking,
@@ -1548,6 +1549,19 @@ function App(): React.JSX.Element {
 
       const timestamp = new Date().toISOString()
       const servicePresets: RecentServicePreset[] = [
+        ...opd.rows
+          .filter((row) => row.label.trim() && chargeRowTotal(row) > 0)
+          .map((row) => ({
+            key: `opd:${opd.doctorId || 'any'}:${row.label.trim().toLowerCase()}`,
+            operation: 'opd' as const,
+            label: row.label.trim(),
+            serviceId: row.serviceId,
+            inHouseAmount: row.inHouseAmount,
+            referredAmount: row.referredAmount,
+            doctorId: opd.doctorId || null,
+            useCount: 1,
+            lastUsedAt: timestamp
+          })),
         ...dental.rows
           .filter((row) => row.label.trim() && chargeRowTotal(row) > 0)
           .map((row) => ({
@@ -1582,6 +1596,46 @@ function App(): React.JSX.Element {
   }
 
   const applyRecentServicePreset = (preset: RecentServicePreset): void => {
+    if (preset.operation === 'opd') {
+      handleOperationChange('opd')
+      setOpd((current) => {
+        const alreadyExists = current.rows.some(
+          (row) => row.label.trim().toLowerCase() === preset.label.trim().toLowerCase()
+        )
+        if (alreadyExists) {
+          return {
+            ...current,
+            doctorId: preset.doctorId || current.doctorId,
+            rows: current.rows.map((row) =>
+              row.label.trim().toLowerCase() === preset.label.trim().toLowerCase()
+                ? {
+                    ...row,
+                    serviceId: row.serviceId ?? preset.serviceId ?? null,
+                    inHouseAmount: row.inHouseAmount || preset.inHouseAmount || '',
+                    referredAmount: row.referredAmount || preset.referredAmount || preset.amount || ''
+                  }
+                : row
+            )
+          }
+        }
+
+        return {
+          ...current,
+          doctorId: preset.doctorId || current.doctorId,
+          rows: [
+            makeRow(
+              preset.label,
+              preset.inHouseAmount ?? '',
+              preset.referredAmount ?? preset.amount ?? '',
+              preset.serviceId ?? null
+            ),
+            ...current.rows
+          ]
+        }
+      })
+      return
+    }
+
     if (preset.operation === 'dental') {
       handleOperationChange('dental')
       setDental((current) => {
