@@ -1529,37 +1529,36 @@ async function printReceipt(payload: PrintPayload): Promise<Record<string, unkno
   return (body as Record<string, unknown>) ?? {}
 }
 
-function normalizeDaySummaryItem(record: Record<string, unknown>): DaySummaryItem | null {
-  const serviceName = getString(record, 'service_name')
-  const quantity = getNumber(record, 'quantity')
-  const total = getNumber(record, 'total')
+async function deriveDaySummaryFromBills(
+  date: string,
+  shift?: SummaryShift
+): Promise<DaySummaryReport> {
+  const bills = await listDailyBills(date)
+  const itemsByService = new Map<string, DaySummaryItem>()
 
-  if (!serviceName) {
-    return null
+  for (const bill of bills) {
+    if (bill.deletedAt || (shift && bill.shift !== shift)) continue
+
+    for (const item of bill.items) {
+      const itemTotal = item.totalAmount ?? 0
+      const existing = itemsByService.get(item.name)
+      if (existing) {
+        existing.quantity += 1
+        existing.total += itemTotal
+      } else {
+        itemsByService.set(item.name, {
+          service_name: item.name,
+          quantity: 1,
+          total: itemTotal
+        })
+      }
+    }
   }
 
   return {
-    service_name: serviceName,
-    quantity: quantity ?? 0,
-    total: total ?? 0
-  }
-}
-
-function normalizeDaySummaryReport(payload: unknown, requestedDate: string): DaySummaryReport {
-  const report =
-    payload && typeof payload === 'object' && !Array.isArray(payload)
-      ? (payload as Record<string, unknown>)
-      : {}
-
-  const items = getArray(report, 'items')
-    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
-    .map(normalizeDaySummaryItem)
-    .filter((item): item is DaySummaryItem => item !== null)
-
-  return {
-    start_date: getString(report, 'start_date') || requestedDate,
-    end_date: getString(report, 'end_date') || requestedDate,
-    items
+    start_date: date,
+    end_date: date,
+    items: [...itemsByService.values()]
   }
 }
 
@@ -1568,50 +1567,11 @@ async function fetchDaySummaryReport(
   shift?: SummaryShift
 ): Promise<DaySummaryReport> {
   const normalizedDate = date.trim()
-  const shiftQuery = shift ? `&shift=${encodeURIComponent(shift)}` : ''
 
-  try {
-    const payload = await apiRequest<unknown>(
-      `/api/public/reports/day-summary?date=${encodeURIComponent(normalizedDate)}${shiftQuery}`
-    )
-
-    return normalizeDaySummaryReport(payload, normalizedDate)
-  } catch (error) {
-    console.warn(
-      `[summary-report] Backend report endpoint failed for ${normalizedDate}${
-        shift ? ` (${shift})` : ''
-      }; deriving the report from paid bills.`,
-      error
-    )
-
-    const bills = await listDailyBills(normalizedDate)
-    const itemsByService = new Map<string, DaySummaryItem>()
-
-    for (const bill of bills) {
-      if (bill.deletedAt || (shift && bill.shift !== shift)) continue
-
-      for (const item of bill.items) {
-        const itemTotal = item.totalAmount ?? 0
-        const existing = itemsByService.get(item.name)
-        if (existing) {
-          existing.quantity += 1
-          existing.total += itemTotal
-        } else {
-          itemsByService.set(item.name, {
-            service_name: item.name,
-            quantity: 1,
-            total: itemTotal
-          })
-        }
-      }
-    }
-
-    return {
-      start_date: normalizedDate,
-      end_date: normalizedDate,
-      items: [...itemsByService.values()]
-    }
-  }
+  // The deployed public report endpoint returns a server error for both
+  // full-day and shift-specific requests. Paid bills are the persisted source
+  // used by the fallback and include the shift needed for filtering.
+  return deriveDaySummaryFromBills(normalizedDate, shift)
 }
 
 async function printSummaryReport(report: DaySummaryReport): Promise<Record<string, unknown>> {

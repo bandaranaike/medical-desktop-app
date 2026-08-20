@@ -38,6 +38,7 @@ This is the current structured task index for `.ai/tasks/`.
 | TASK-129 | done    | Self-Update Support                                            | `.ai/tasks/done/self-update-support.md`                                | configurable electron-updater checks, background download, and restart installation implemented                    |
 | TASK-130 | done    | Summary Print Empty Report                                     | `.ai/tasks/active/summary-print-empty-report.md`                         | allow valid zero-sales morning, evening, and day summaries to print                                                   |
 | TASK-131 | done    | OPD Additional Service Autocomplete                           | `.ai/tasks/done/opd-additional-service-autocomplete.md`                   | OPD Additional Services already matches Others autocomplete behavior                                                |
+| TASK-132 | done    | Day Summary Production Print Failure                           | `.ai/tasks/active/day-summary-production-print-failure.md`                 | full-day summary now derives directly from paid bills; production build verified                                 |
 
 ## Notes
 
